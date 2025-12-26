@@ -56,7 +56,9 @@ export const analyzeConflict = async (params: AnalysisParams): Promise<AnalysisR
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error?.error || "Analysis failed.");
+      const base = error?.error || "Analysis failed.";
+      const details = error?.details ? `: ${error.details}` : "";
+      throw new Error(`${base}${details}`);
     }
 
     return (await response.json()) as AnalysisResponse;
