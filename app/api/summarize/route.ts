@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
+import { callOpenRouterChat, resolveModelSlug } from "@/lib/server/openrouter";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  if (!process.env.API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY) {
     return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
   }
 
@@ -39,17 +39,19 @@ export async function POST(request: NextRequest) {
     Write a 1-paragraph summary.
   `;
 
-  const modelName = caseInfo.planType === "premium" ? "gemini-3-pro-preview" : "gemini-3-flash-preview";
-
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: prompt,
-      config: { maxOutputTokens: 500, temperature: 0.5 },
+    const authHeader = request.headers.get("authorization");
+    const authToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const modelSlug = await resolveModelSlug(caseInfo?.planType, authToken);
+
+    const text = await callOpenRouterChat({
+      model: modelSlug,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.5,
+      max_tokens: 500,
     });
 
-    return NextResponse.json({ summary: response.text || "" });
+    return NextResponse.json({ summary: text });
   } catch (error) {
     return NextResponse.json({ error: "Failed to generate summary" }, { status: 500 });
   }

@@ -15,4 +15,4 @@
 
 ## Copyright
 
-Copyright (c) 2025 NeuroSyncTeam AI Dynamics Pty Ltd. All rights reserved.
+Copyright (c) 2025 NeuroSyncTeam AI Dynamics PTY LTD. All rights reserved.

@@ -1,6 +1,7 @@
 
 import { AnalysisResponse, Mode, OpponentType, UserGoal, PlanType, Round, Case } from "../types";
 import { DEMO_SCENARIOS } from "./demo_scenarios";
+import { supabase } from "./supabase";
 
 interface AnalysisParams {
   opponentType: OpponentType;
@@ -15,6 +16,12 @@ interface AnalysisParams {
   roundIndex?: number;
   senderIdentity?: string;
 }
+
+const getAuthHeaders = async (): Promise<Record<string, string>> => {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
 
 export const analyzeConflict = async (params: AnalysisParams): Promise<AnalysisResponse> => {
   // 0. Demo Script Interception (Client-side)
@@ -40,9 +47,10 @@ export const analyzeConflict = async (params: AnalysisParams): Promise<AnalysisR
   }
 
   try {
+    const authHeaders = await getAuthHeaders();
     const response = await fetch("/api/analyze", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify(params),
     });
 
@@ -61,12 +69,17 @@ export const analyzeConflict = async (params: AnalysisParams): Promise<AnalysisR
   }
 };
 
-export const reviseResponse = async (originalText: string, instruction: string): Promise<string> => {
+export const reviseResponse = async (
+  originalText: string,
+  instruction: string,
+  planType: PlanType = "standard"
+): Promise<string> => {
   try {
+    const authHeaders = await getAuthHeaders();
     const response = await fetch("/api/revise", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ originalText, instruction }),
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ originalText, instruction, planType }),
     });
 
     if (!response.ok) {
@@ -87,9 +100,10 @@ export const summarizeCase = async (rounds: Round[], caseInfo: Case): Promise<st
   }
 
   try {
+    const authHeaders = await getAuthHeaders();
     const response = await fetch("/api/summarize", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ rounds, caseInfo }),
     });
 

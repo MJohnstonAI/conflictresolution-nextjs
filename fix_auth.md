@@ -13,7 +13,9 @@ ADD COLUMN IF NOT EXISTS is_admin boolean DEFAULT false,
 ADD COLUMN IF NOT EXISTS is_trial boolean DEFAULT false,
 ADD COLUMN IF NOT EXISTS theme text DEFAULT 'dark',
 ADD COLUMN IF NOT EXISTS standard_credits int DEFAULT 0,
-ADD COLUMN IF NOT EXISTS premium_credits int DEFAULT 0;
+ADD COLUMN IF NOT EXISTS premium_credits int DEFAULT 0,
+ADD COLUMN IF NOT EXISTS standard_model_id bigint REFERENCES public.ai_models(id),
+ADD COLUMN IF NOT EXISTS premium_model_id bigint REFERENCES public.ai_models(id);
 
 -- 2. Create the Trigger Function
 -- This captures the 'full_name' you entered in the signup form.
@@ -28,7 +30,9 @@ BEGIN
     standard_credits, 
     is_admin,
     is_trial,
-    theme
+    theme,
+    standard_model_id,
+    premium_model_id
   )
   VALUES (
     new.id, 
@@ -38,7 +42,9 @@ BEGIN
     0, 
     false,
     false,
-    'dark'
+    'dark',
+    (SELECT id FROM public.ai_models WHERE plan_type = 'standard' ORDER BY id LIMIT 1),
+    (SELECT id FROM public.ai_models WHERE plan_type = 'premium' ORDER BY id LIMIT 1)
   );
   RETURN new;
 END;
