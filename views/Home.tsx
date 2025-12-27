@@ -22,6 +22,7 @@ import {
   Zap,
 } from "lucide-react";
 import { consumeRouteState } from "@/lib/route-state";
+import { getClientAuthHeaders } from "@/lib/client/auth-headers";
 
 const CONTEXT_LIMIT_CHARS = 40000;
 
@@ -355,9 +356,10 @@ const Home: React.FC = () => {
     setContextNotice("Input exceeds limits and will be summarised with Claude Sonnet 4.5.");
     toast("Input exceeds 40,000 characters. Summarizing with Claude Sonnet 4.5…", "info");
     try {
+      const authHeaders = await getClientAuthHeaders();
       const response = await fetch("/api/context-summarize", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ text: rawText, limit: CONTEXT_LIMIT_CHARS }),
       });
       const payload = await response.json().catch(() => null);

@@ -6,6 +6,7 @@ import {
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
 import { getClientIp, rateLimit, retryAfterSeconds } from "@/lib/server/rate-limit";
+import { requireAiAuth } from "@/lib/server/ai-auth";
 
 export const runtime = "nodejs";
 
@@ -21,16 +22,13 @@ const coerceLimit = (value: unknown) => {
   return Math.min(Math.max(1, Math.floor(num)), DEFAULT_LIMIT_CHARS);
 };
 
-const getBearerToken = (request: Request) => {
-  const authHeader = request.headers.get("authorization") || "";
-  const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  return match?.[1] ?? null;
-};
-
 export async function POST(request: NextRequest) {
   if (!process.env.OPENROUTER_API_KEY) {
     return errorResponse("Missing OPENROUTER_API_KEY", 500);
   }
+
+  const authGuard = await requireAiAuth(request);
+  if (!authGuard.ok) return authGuard.error;
 
   const ip = getClientIp(request);
   const limit = rateLimit(`message-summarize:${ip}`, 2, 60_000);
@@ -97,8 +95,7 @@ ${rawText}
 `;
 
   try {
-    const authToken = getBearerToken(request);
-    const modelSlug = await resolveModelSlug("premium", authToken);
+    const modelSlug = await resolveModelSlug("premium", authGuard.token);
     const text = await callOpenRouterChat({
       model: modelSlug,
       messages: [
@@ -132,4 +129,3 @@ ${rawText}
     return errorResponse(message, 500);
   }
 }
-

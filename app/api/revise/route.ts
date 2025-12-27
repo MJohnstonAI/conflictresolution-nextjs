@@ -5,33 +5,35 @@ import {
   resolveModelSlug,
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
+import { requireAiAuth } from "@/lib/server/ai-auth";
+import { requireCaseAccess } from "@/lib/server/ai-case-guard";
 
 export const runtime = "nodejs";
 
+const errorResponse = (message: string, status: number) =>
+  NextResponse.json({ error: { message, upstreamStatus: status } }, { status });
+
 export async function POST(request: NextRequest) {
   if (!process.env.OPENROUTER_API_KEY) {
-    return NextResponse.json(
-      { error: { message: "Missing OPENROUTER_API_KEY", upstreamStatus: 500 } },
-      { status: 500 }
-    );
+    return errorResponse("Missing OPENROUTER_API_KEY", 500);
   }
+
+  const authGuard = await requireAiAuth(request);
+  if (!authGuard.ok) return authGuard.error;
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: { message: "Invalid JSON payload", upstreamStatus: 400 } },
-      { status: 400 }
-    );
+    return errorResponse("Invalid JSON payload", 400);
   }
 
-  const { originalText, instruction, planType } = body || {};
+  const { originalText, instruction, planType, caseId } = body || {};
+  if (planType === "demo") {
+    return errorResponse("Demo mode does not call AI", 400);
+  }
   if (!originalText || !instruction) {
-    return NextResponse.json(
-      { error: { message: "Missing originalText or instruction", upstreamStatus: 400 } },
-      { status: 400 }
-    );
+    return errorResponse("Missing originalText or instruction", 400);
   }
 
   const prompt = `
@@ -49,9 +51,15 @@ export async function POST(request: NextRequest) {
   `;
 
   try {
-    const authHeader = request.headers.get("authorization");
-    const authToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const modelSlug = await resolveModelSlug(planType, authToken);
+    const caseGuard = await requireCaseAccess({
+      caseId: typeof caseId === "string" ? caseId : null,
+      userId: authGuard.userId,
+      planType,
+      requireOpen: false,
+    });
+    if (!caseGuard.ok) return caseGuard.error;
+
+    const modelSlug = await resolveModelSlug(planType, authGuard.token);
 
     const text = await callOpenRouterChat({
       model: modelSlug,

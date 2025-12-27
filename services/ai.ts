@@ -5,6 +5,7 @@ import { supabase } from "./supabase";
 import { formatApiErrorMessage, readApiErrorDetails } from "@/lib/client/api-errors";
 
 interface AnalysisParams {
+  caseId?: string;
   opponentType: OpponentType;
   mode: Mode;
   goal: UserGoal;
@@ -73,14 +74,15 @@ export const analyzeConflict = async (params: AnalysisParams): Promise<AnalysisR
 export const reviseResponse = async (
   originalText: string,
   instruction: string,
-  planType: PlanType = "standard"
+  planType: PlanType = "standard",
+  caseId?: string
 ): Promise<string> => {
   try {
     const authHeaders = await getAuthHeaders();
     const response = await fetch("/api/revise", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
-      body: JSON.stringify({ originalText, instruction, planType }),
+      body: JSON.stringify({ originalText, instruction, planType, caseId }),
     });
 
     if (!response.ok) {

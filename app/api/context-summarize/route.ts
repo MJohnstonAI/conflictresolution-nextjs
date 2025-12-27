@@ -6,6 +6,7 @@ import {
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
 import { getClientIp, rateLimit, retryAfterSeconds } from "@/lib/server/rate-limit";
+import { requireAiAuth } from "@/lib/server/ai-auth";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,9 @@ export async function POST(request: NextRequest) {
   if (!process.env.OPENROUTER_API_KEY) {
     return errorResponse("Missing OPENROUTER_API_KEY", 500);
   }
+
+  const authGuard = await requireAiAuth(request);
+  if (!authGuard.ok) return authGuard.error;
 
   const ip = getClientIp(request);
   const limit = rateLimit(`context-summarize:${ip}`, 3, 60_000);
@@ -92,7 +96,7 @@ ${rawText}
 `;
 
   try {
-    const modelSlug = await resolveModelSlug("premium", null);
+    const modelSlug = await resolveModelSlug("premium", authGuard.token);
     const text = await callOpenRouterChat({
       model: modelSlug,
       messages: [
