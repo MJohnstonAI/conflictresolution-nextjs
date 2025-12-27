@@ -5,6 +5,7 @@ import {
   resolveModelSlug,
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
+import { getClientIp, rateLimit, retryAfterSeconds } from "@/lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: { message: "Missing OPENROUTER_API_KEY", upstreamStatus: 500 } },
       { status: 500 }
+    );
+  }
+
+  const ip = getClientIp(request);
+  const limit = rateLimit(`analyze:${ip}`, 8, 60_000);
+  if (!limit.allowed) {
+    const retryAfter = retryAfterSeconds(limit.resetAt);
+    return NextResponse.json(
+      {
+        error: {
+          message: `Rate limit exceeded. Please wait ${retryAfter}s and try again.`,
+          upstreamStatus: 429,
+        },
+      },
+      { status: 429, headers: { "Retry-After": String(retryAfter) } }
     );
   }
 
