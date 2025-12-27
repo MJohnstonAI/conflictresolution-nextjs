@@ -3,13 +3,14 @@
 
 import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { User, RefreshCw, AlertTriangle, Shield, Scale, Mountain, Flame, ArrowLeft, Home, Copy, Info, Target, Fingerprint, Activity, ChevronLeft, ChevronRight, Download, Eye, EyeOff, Printer, FileText } from 'lucide-react';
+import { User, RefreshCw, AlertTriangle, Shield, Scale, Mountain, Flame, ArrowLeft, Home, Copy, Info, Target, Fingerprint, Activity, ChevronLeft, ChevronRight, Download, Eye, EyeOff, Printer, FileText, PlayCircle } from 'lucide-react';
 import { store } from '../services/store';
 import { analyzeConflict } from '../services/ai';
 import { exportService } from '../services/export';
 import { Case, Round, Mode, UserAccount } from '../types';
 import { Button, Badge, RiskGauge } from '../components/UI';
 import { toast } from '../components/DesignSystem';
+import { DEMO_SCENARIOS } from '../services/demo_scenarios';
 
 // --- SUB-COMPONENTS ---
 
@@ -26,10 +27,12 @@ interface InputSectionProps {
     onSubmit: () => void;
     roundNumber: number;
     isHero?: boolean;
+    isDemo?: boolean;
+    demoHasNext?: boolean;
 }
 
 const InputSection: React.FC<InputSectionProps> = memo(({ 
-    inputText, setInputText, senderName, setSenderName, isAnalyzing, isCaseClosed, analysisError, setAnalysisError, activeCase, onSubmit, roundNumber, isHero = false
+    inputText, setInputText, senderName, setSenderName, isAnalyzing, isCaseClosed, analysisError, setAnalysisError, activeCase, onSubmit, roundNumber, isHero = false, isDemo = false, demoHasNext = true
 }) => {
     const [isTyping, setIsTyping] = useState(false);
     const typingTimeoutRef = useRef<number | null>(null);
@@ -48,8 +51,28 @@ const InputSection: React.FC<InputSectionProps> = memo(({
         : "h-full flex flex-col justify-center max-w-4xl mx-auto w-full";
 
     const textareaClasses = isHero
-        ? "w-full bg-navy-950/50 border border-navy-700 rounded-xl p-6 text-lg text-slate-200 placeholder-slate-600 outline-none transition-all resize-none flex-1 min-h-[200px] focus:border-gold-500/50 focus:bg-navy-950 focus:shadow-[inset_0_2px_10px_rgba(0,0,0,0.3)]"
-        : `w-full bg-navy-900 border rounded-2xl p-6 text-base text-slate-300 placeholder-slate-500 outline-none transition-all resize-none flex-1 min-h-[300px] shadow-inner ${isTyping ? 'border-gold-500/50 shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)]' : analysisError ? 'border-rose-500/50' : 'border-navy-800 focus:border-gold-500/30'}`;
+        ? `w-full border border-navy-700 rounded-xl p-6 text-lg outline-none transition-all resize-none flex-1 min-h-[200px] focus:border-gold-500/50 focus:shadow-[inset_0_2px_10px_rgba(0,0,0,0.3)] ${
+            isDemo
+                ? "bg-navy-950 text-slate-100 placeholder-slate-500"
+                : "bg-navy-950/50 text-slate-200 placeholder-slate-600 focus:bg-navy-950"
+        }`
+        : `w-full bg-navy-900 border rounded-2xl p-6 text-base text-slate-300 placeholder-slate-500 outline-none transition-all resize-none flex-1 min-h-[300px] shadow-inner ${
+            isDemo ? "bg-navy-950 text-slate-100 placeholder-slate-500" : ""
+        } ${isTyping ? 'border-gold-500/50 shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)]' : analysisError ? 'border-rose-500/50' : 'border-navy-800 focus:border-gold-500/30'}`;
+
+    const placeholderText = isDemo
+        ? "Demo playback is read-only. Press play to reveal the next scripted message."
+        : `Paste the exact, unedited message from ${senderName || activeCase.opponentType} here.\n\nCRITICAL: Do not summarize or censor. The AI relies on specific phrasing to detect psychological nuances, gaslighting, and manipulation tactics.\n\nDisclaimer: Analysis accuracy depends entirely on input fidelity. Incomplete or paraphrased text may lead to suboptimal strategic advice.`;
+
+    const actionLabel = isDemo
+        ? demoHasNext
+            ? roundNumber === 1
+                ? "Play Demo Round 1"
+                : "Play Next Demo Round"
+            : "Demo Complete"
+        : "Analyze & Generate Response";
+
+    const actionDisabled = isAnalyzing || isCaseClosed || (isDemo ? !demoHasNext : !inputText.trim());
 
     return (
         <div className={containerClasses}>
@@ -83,7 +106,11 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                 <label className="flex items-center justify-between">
                     <span className="text-[10px] font-bold text-gold-500 uppercase tracking-widest pl-1 font-mono flex items-center gap-2">
                         {isHero ? <Activity className="w-3 h-3" /> : null}
-                        {isHero ? "AWAITING TRANSMISSION (EVIDENCE)" : `ROUND ${roundNumber} // AWAITING INPUT`}
+                        {isDemo
+                            ? `DEMO ROUND ${roundNumber} // READY TO PLAY`
+                            : isHero
+                                ? "AWAITING TRANSMISSION (EVIDENCE)"
+                                : `ROUND ${roundNumber} // AWAITING INPUT`}
                     </span>
                     {inputText.length > 0 && <span className="text-[10px] font-mono text-slate-500">{inputText.length} chars</span>}
                 </label>
@@ -91,11 +118,13 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                 <textarea 
                     value={inputText}
                     onChange={(e) => {
+                        if (isDemo) return;
                         setInputText(e.target.value);
                         if (analysisError) setAnalysisError(null);
                     }}
-                    placeholder={`Paste the exact, unedited message from ${senderName || activeCase.opponentType} here.\n\nCRITICAL: Do not summarize or censor. The AI relies on specific phrasing to detect psychological nuances, gaslighting, and manipulation tactics.\n\nDisclaimer: Analysis accuracy depends entirely on input fidelity. Incomplete or paraphrased text may lead to suboptimal strategic advice.`}
+                    placeholder={placeholderText}
                     className={textareaClasses}
+                    readOnly={isDemo}
                     disabled={isAnalyzing || isCaseClosed}
                 />
             </div>
@@ -105,18 +134,19 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                     onClick={onSubmit}
                     fullWidth 
                     size="lg" 
-                    disabled={isAnalyzing || isCaseClosed || !inputText.trim()}
+                    disabled={actionDisabled}
                     className={`font-bold shadow-lg transition-all ${isHero ? 'bg-gold-600 hover:bg-gold-500 text-navy-950 py-5 text-lg shadow-gold-500/20' : 'bg-gold-600 hover:bg-gold-500 text-navy-950 shadow-gold-500/20'}`}
                 >
                     {isAnalyzing ? (
                         <div className="flex items-center gap-2">
                             <RefreshCw className="w-5 h-5 animate-spin" />
-                            <span>Analyzing Psychology...</span>
+                            <span>{isDemo ? "Loading Demo Round..." : "Analyzing Psychology..."}</span>
                         </div>
                     ) : (
                         <div className="flex items-center gap-2">
-                            <span>Analyze & Generate Response</span>
-                            <ArrowLeft className="w-5 h-5 rotate-180" />
+                            {isDemo ? <PlayCircle className="w-5 h-5" /> : null}
+                            <span>{actionLabel}</span>
+                            {!isDemo && <ArrowLeft className="w-5 h-5 rotate-180" />}
                         </div>
                     )}
                 </Button>
@@ -173,9 +203,11 @@ const SingleRoundView: React.FC<{
     onNextRound: () => void;
     isLatest: boolean;
     userName?: string;
-}> = ({ round, onModeSelect, opponentType, onNextRound, isLatest, userName }) => {
+    isDemo?: boolean;
+    demoHasNext?: boolean;
+}> = ({ round, onModeSelect, opponentType, onNextRound, isLatest, userName, isDemo = false, demoHasNext = true }) => {
 
-    const [showRawText, setShowRawText] = useState(false);
+    const [showRawText, setShowRawText] = useState(isDemo);
 
     // Helper to get current response text
     const currentResponse = round.responses[round.selectedMode === 'Peacekeeper' ? 'soft' : round.selectedMode === 'Barrister' ? 'firm' : round.selectedMode === 'Grey Rock' ? 'greyRock' : 'nuclear'] || "";
@@ -194,10 +226,12 @@ const SingleRoundView: React.FC<{
                                 <User className="w-4 h-4 text-slate-500" />
                                 <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Adversary's Narrative</span>
                             </div>
-                            <button onClick={() => setShowRawText(!showRawText)} className="text-[10px] font-bold text-blue-500 hover:text-blue-400 flex items-center gap-1 uppercase tracking-wider">
-                                {showRawText ? <EyeOff className="w-3 h-3"/> : <Eye className="w-3 h-3"/>}
-                                {showRawText ? "Hide Raw" : "View Raw"}
-                            </button>
+                            {!isDemo && (
+                                <button onClick={() => setShowRawText(!showRawText)} className="text-[10px] font-bold text-blue-500 hover:text-blue-400 flex items-center gap-1 uppercase tracking-wider">
+                                    {showRawText ? <EyeOff className="w-3 h-3"/> : <Eye className="w-3 h-3"/>}
+                                    {showRawText ? "Hide Raw" : "View Raw"}
+                                </button>
+                            )}
                         </div>
                         <div className="p-6 overflow-y-auto custom-scrollbar bg-navy-900/50 relative">
                             {showRawText ? (
@@ -309,17 +343,26 @@ const SingleRoundView: React.FC<{
 
                         {/* Footer Action */}
                         <div className="pt-2 shrink-0">
-                            <Button 
-                                fullWidth 
-                                size="lg" 
-                                onClick={onNextRound} 
-                                className="flex justify-between items-center group bg-blue-600 hover:bg-blue-500 text-white border-blue-500 shadow-blue-500/20 shadow-lg"
-                            >
-                                <span>{isLatest ? "Next Round" : "View Next Round"}</span>
-                                <div className="flex items-center gap-2">
-                                    <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />
-                                </div>
-                            </Button>
+                        <Button 
+                            fullWidth 
+                            size="lg" 
+                            onClick={onNextRound}
+                            disabled={isLatest && isDemo && !demoHasNext}
+                            className="flex justify-between items-center group bg-blue-600 hover:bg-blue-500 text-white border-blue-500 shadow-blue-500/20 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <span>
+                                {isDemo && isLatest
+                                    ? demoHasNext
+                                        ? "Play Next Demo Round"
+                                        : "Demo Complete"
+                                    : isLatest
+                                        ? "Next Round"
+                                        : "View Next Round"}
+                            </span>
+                            <div className="flex items-center gap-2">
+                                {!isDemo && <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />}
+                            </div>
+                        </Button>
                         </div>
                     </div>
                 </div>
@@ -351,6 +394,11 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisError, setAnalysisError] = useState<string | null>(null);
     const analyzeInFlight = useRef(false);
+    const demoScenario = useMemo(
+        () => (activeCase?.demoScenarioId ? DEMO_SCENARIOS[activeCase.demoScenarioId] : undefined),
+        [activeCase?.demoScenarioId]
+    );
+    const isDemo = !!activeCase?.demoScenarioId && activeCase?.planType === "demo";
 
     // Initial Load
     useEffect(() => {
@@ -363,11 +411,20 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 store.getCases(),
                 store.getAccount()
             ]);
-            
+
             if (!c) { router.push('/'); return; }
-            
+
+            let caseData = c;
+            if (caseData.demoScenarioId) {
+                const scenario = DEMO_SCENARIOS[caseData.demoScenarioId];
+                if (scenario && caseData.roundsLimit !== scenario.rounds.length) {
+                    caseData = { ...caseData, roundsLimit: scenario.rounds.length };
+                    await store.saveCase(caseData);
+                }
+            }
+
             setAllCases(cases);
-            setActiveCase(c);
+            setActiveCase(caseData);
             setRounds(r);
             setAccount(acc);
             setLoading(false);
@@ -383,6 +440,12 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         load();
     }, [caseId, id, router]);
 
+    useEffect(() => {
+        if (!isDemo || !demoScenario) return;
+        const nextRound = demoScenario.rounds[rounds.length];
+        setInputText(nextRound ? nextRound.opponentText : "");
+    }, [isDemo, demoScenario, rounds.length]);
+
     // Create a mapping for sequential case numbers based on chronological order (Replicated from Vault)
     const caseNumberMap = useMemo(() => {
         const sortedAsc = [...allCases].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -393,9 +456,78 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
 
     const caseNum = useMemo(() => activeCase ? (caseNumberMap.get(activeCase.id) || 0) : 0, [activeCase, caseNumberMap]);
 
+    const appendDemoRound = async () => {
+        if (!activeCase || !demoScenario) {
+            setAnalysisError("Demo scenario missing. Please restart the demo.");
+            return;
+        }
+
+        const nextIndex = rounds.length;
+        const scriptRound = demoScenario.rounds[nextIndex];
+        if (!scriptRound) {
+            if (!activeCase.isClosed) {
+                const closedCase = { ...activeCase, isClosed: true, roundsLimit: demoScenario.rounds.length };
+                await store.saveCase(closedCase);
+                setActiveCase(closedCase);
+            }
+            setAnalysisError("Demo complete. You've reached the end of the scripted case.");
+            toast("Demo complete.", "info");
+            return;
+        }
+
+        const roundsLimit = demoScenario.rounds.length;
+        const roundsUsedCount = Math.max(activeCase.roundsUsed, rounds.length);
+        if (roundsUsedCount >= roundsLimit && !activeCase.isClosed) {
+            const closedCase = { ...activeCase, isClosed: true, roundsLimit };
+            await store.saveCase(closedCase);
+            setActiveCase(closedCase);
+            setAnalysisError("Demo complete. You've reached the end of the scripted case.");
+            return;
+        }
+
+        const { opponentText, ...analysis } = scriptRound;
+        const newRound: Round = {
+            id: crypto.randomUUID(),
+            caseId: activeCase.id,
+            roundNumber: rounds.length + 1,
+            createdAt: new Date().toISOString(),
+            opponentText,
+            senderIdentity: senderName,
+            userGoal: 'Hold boundaries',
+            isAnalyzed: true,
+            selectedMode: 'Peacekeeper',
+            rerollsUsed: 0,
+            modelSlug: "demo-script",
+            ...analysis
+        };
+
+        await store.saveRound(newRound);
+        const updatedCase = { ...activeCase, roundsUsed: roundsUsedCount + 1, roundsLimit };
+        await store.saveCase(updatedCase);
+
+        const updatedRounds = [...rounds, newRound];
+        setRounds(updatedRounds);
+        setActiveCase(updatedCase);
+        setAnalysisError(null);
+        setViewIndex(updatedRounds.length - 1);
+    };
+
     // Handle Analysis
     const handleAnalyze = async () => {
-        if (!activeCase || !inputText.trim()) return;
+        if (!activeCase) return;
+        if (isDemo) {
+            if (isAnalyzing || analyzeInFlight.current) return;
+            analyzeInFlight.current = true;
+            setIsAnalyzing(true);
+            try {
+                await appendDemoRound();
+            } finally {
+                setIsAnalyzing(false);
+                analyzeInFlight.current = false;
+            }
+            return;
+        }
+        if (!inputText.trim()) return;
         if (analyzeInFlight.current) return;
         analyzeInFlight.current = true;
         setIsAnalyzing(true);
@@ -442,7 +574,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 senderIdentity: senderName,
                 userGoal: 'Hold boundaries',
                 isAnalyzed: true,
-                selectedMode: 'Barrister',
+                selectedMode: 'Peacekeeper',
                 rerollsUsed: 0,
                 ...analysis
             };
@@ -482,6 +614,14 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     };
 
     const goToNext = () => {
+        if (isDemo && viewIndex === rounds.length - 1) {
+            const hasNextDemoRound = demoScenario && rounds.length < demoScenario.rounds.length;
+            if (hasNextDemoRound) {
+                handleAnalyze();
+                return;
+            }
+            return;
+        }
         if (viewIndex < rounds.length) {
             setViewIndex(viewIndex + 1);
         }
@@ -519,6 +659,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             : activeCase.planType === "standard"
               ? "anthropic/claude-haiku-4.5"
               : "demo-script");
+    const demoHasNext = isDemo && !!demoScenario?.rounds[rounds.length];
 
     return (
         <div className="w-full h-full">
@@ -622,24 +763,28 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                      
                                      {/* Input Form */}
                                      <div className="w-full flex-1 min-h-[400px]">
-                                         <InputSection 
-                                            inputText={inputText} setInputText={setInputText}
-                                            senderName={senderName} setSenderName={setSenderName}
-                                            isAnalyzing={isAnalyzing} isCaseClosed={activeCase.isClosed}
-                                            analysisError={analysisError} setAnalysisError={setAnalysisError}
-                                            activeCase={activeCase} onSubmit={handleAnalyze}
-                                            roundNumber={rounds.length + 1} isHero={true}
-                                         />
-                                     </div>
-                                 </div>
-                            ) : (
+                                      <InputSection 
+                                         inputText={inputText} setInputText={setInputText}
+                                         senderName={senderName} setSenderName={setSenderName}
+                                         isAnalyzing={isAnalyzing} isCaseClosed={activeCase.isClosed}
+                                         analysisError={analysisError} setAnalysisError={setAnalysisError}
+                                         activeCase={activeCase} onSubmit={handleAnalyze}
+                                         roundNumber={rounds.length + 1} isHero={true}
+                                         isDemo={isDemo}
+                                         demoHasNext={demoHasNext}
+                                      />
+                                  </div>
+                             </div>
+                        ) : (
                                  <InputSection 
-                                    inputText={inputText} setInputText={setInputText}
-                                    senderName={senderName} setSenderName={setSenderName}
-                                    isAnalyzing={isAnalyzing} isCaseClosed={activeCase.isClosed}
-                                    analysisError={analysisError} setAnalysisError={setAnalysisError}
-                                    activeCase={activeCase} onSubmit={handleAnalyze}
-                                    roundNumber={rounds.length + 1} isHero={false}
+                                     inputText={inputText} setInputText={setInputText}
+                                     senderName={senderName} setSenderName={setSenderName}
+                                     isAnalyzing={isAnalyzing} isCaseClosed={activeCase.isClosed}
+                                     analysisError={analysisError} setAnalysisError={setAnalysisError}
+                                     activeCase={activeCase} onSubmit={handleAnalyze}
+                                     roundNumber={rounds.length + 1} isHero={false}
+                                     isDemo={isDemo}
+                                     demoHasNext={demoHasNext}
                                  />
                             )}
                          </div>
@@ -652,6 +797,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                 onNextRound={goToNext}
                                 isLatest={viewIndex === rounds.length - 1}
                                 userName={account?.name}
+                                isDemo={isDemo}
+                                demoHasNext={demoHasNext}
                             />
                         )
                     )}

@@ -21,7 +21,7 @@ export const DemoSelect: React.FC = () => {
             title: `DEMO: ${scenario.title}`,
             opponentType: scenario.opponentType,
             createdAt: new Date().toISOString(),
-            roundsLimit: 3, // Short demo limit
+            roundsLimit: scenario.rounds.length,
             roundsUsed: 0,
             planType: 'demo',
             isClosed: false,
