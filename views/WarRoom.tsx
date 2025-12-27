@@ -5,12 +5,20 @@ import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { User, RefreshCw, AlertTriangle, Shield, Scale, Mountain, Flame, ArrowLeft, Home, Copy, Info, Target, Fingerprint, Activity, ChevronLeft, ChevronRight, Download, Eye, EyeOff, Printer, FileText, PlayCircle } from 'lucide-react';
 import { store } from '../services/store';
-import { analyzeConflict } from '../services/ai';
+import { analyzeConflict, reviseResponse, summarizeCase } from '../services/ai';
 import { exportService } from '../services/export';
 import { Case, Round, Mode, UserAccount } from '../types';
 import { Button, Badge, RiskGauge } from '../components/UI';
 import { toast } from '../components/DesignSystem';
 import { DEMO_SCENARIOS } from '../services/demo_scenarios';
+import { setRouteState } from '@/lib/route-state';
+import { getClientAuthHeaders } from '@/lib/client/auth-headers';
+
+const MAX_OPPONENT_MESSAGE_CHARS = 15000;
+const WARN_OPPONENT_MESSAGE_CHARS = 13500;
+
+const getResponseKey = (mode: Mode) =>
+    mode === 'Peacekeeper' ? 'soft' : mode === 'Barrister' ? 'firm' : mode === 'Grey Rock' ? 'greyRock' : 'nuclear';
 
 // --- SUB-COMPONENTS ---
 
@@ -36,6 +44,12 @@ const InputSection: React.FC<InputSectionProps> = memo(({
 }) => {
     const [isTyping, setIsTyping] = useState(false);
     const typingTimeoutRef = useRef<number | null>(null);
+    const [limitNotice, setLimitNotice] = useState<string | null>(null);
+    const [isSummarizingMessage, setIsSummarizingMessage] = useState(false);
+
+    const charsUsed = inputText.length;
+    const isNearLimit = !isDemo && charsUsed >= WARN_OPPONENT_MESSAGE_CHARS;
+    const isAtLimit = !isDemo && charsUsed >= MAX_OPPONENT_MESSAGE_CHARS;
 
     useEffect(() => {
         if (inputText) {
@@ -72,7 +86,81 @@ const InputSection: React.FC<InputSectionProps> = memo(({
             : "Demo Complete"
         : "Analyze & Generate Response";
 
-    const actionDisabled = isAnalyzing || isCaseClosed || (isDemo ? !demoHasNext : !inputText.trim());
+    const actionDisabled =
+        isAnalyzing || isSummarizingMessage || isCaseClosed || (isDemo ? !demoHasNext : !inputText.trim());
+
+    const isTransientError =
+        !!analysisError && /Error (429|502|503|504)|timed out|timeout/i.test(analysisError);
+    const requestIdMatch = analysisError?.match(/Request ID:\s*([^\s]+)/i);
+    const requestId = requestIdMatch?.[1];
+
+    const summarizeMessageToLimit = async (rawText: string) => {
+        setIsSummarizingMessage(true);
+        setLimitNotice(
+            `Message limit exceeded. Summarizing with the premium model to fit within ${MAX_OPPONENT_MESSAGE_CHARS.toLocaleString()} characters...`
+        );
+        toast(
+            `Message exceeds ${MAX_OPPONENT_MESSAGE_CHARS.toLocaleString()} characters. Summarizing with the premium model...`,
+            "info"
+        );
+        try {
+            const authHeaders = await getClientAuthHeaders();
+            const response = await fetch("/api/message-summarize", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...authHeaders },
+                body: JSON.stringify({ text: rawText, limit: MAX_OPPONENT_MESSAGE_CHARS }),
+            });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok) {
+                const message =
+                    payload?.error?.message ||
+                    (typeof payload?.message === "string" ? payload.message : null) ||
+                    `Request failed with ${response.status}`;
+                throw new Error(message);
+            }
+            const nextText = payload?.data?.text;
+            if (typeof nextText === "string" && nextText.trim()) {
+                setInputText(nextText.slice(0, MAX_OPPONENT_MESSAGE_CHARS));
+                setLimitNotice(
+                    `Message was summarized to fit within ${MAX_OPPONENT_MESSAGE_CHARS.toLocaleString()} characters.`
+                );
+                toast("Message summarized to fit within the limit.", "success");
+                return;
+            }
+            throw new Error("No summary returned");
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to summarise message";
+            toast(message, "error");
+            setInputText(rawText.slice(0, MAX_OPPONENT_MESSAGE_CHARS));
+            setLimitNotice(
+                `Summarization failed; the message was truncated to ${MAX_OPPONENT_MESSAGE_CHARS.toLocaleString()} characters.`
+            );
+        } finally {
+            setIsSummarizingMessage(false);
+        }
+    };
+
+    const handleMessagePaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+        if (isDemo) return;
+        const pasted = event.clipboardData.getData("text");
+        if (!pasted) return;
+        if (isSummarizingMessage) {
+            event.preventDefault();
+            return;
+        }
+
+        const el = event.currentTarget;
+        const start = el.selectionStart ?? inputText.length;
+        const end = el.selectionEnd ?? inputText.length;
+        const next = inputText.slice(0, start) + pasted + inputText.slice(end);
+        if (next.length <= MAX_OPPONENT_MESSAGE_CHARS) {
+            setLimitNotice(null);
+            return;
+        }
+
+        event.preventDefault();
+        await summarizeMessageToLimit(next);
+    };
 
     return (
         <div className={containerClasses}>
@@ -112,21 +200,43 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                                 ? "AWAITING TRANSMISSION (EVIDENCE)"
                                 : `ROUND ${roundNumber} // AWAITING INPUT`}
                     </span>
-                    {inputText.length > 0 && <span className="text-[10px] font-mono text-slate-500">{inputText.length} chars</span>}
+                    <span
+                        className={`text-[10px] font-mono ${
+                            isAtLimit ? "text-amber-400" : isNearLimit ? "text-slate-300" : "text-slate-500"
+                        }`}
+                    >
+                        {charsUsed.toLocaleString()} / {MAX_OPPONENT_MESSAGE_CHARS.toLocaleString()}
+                    </span>
                 </label>
                 
                 <textarea 
                     value={inputText}
                     onChange={(e) => {
                         if (isDemo) return;
-                        setInputText(e.target.value);
+                        const nextRaw = e.target.value;
+                        if (nextRaw.length > MAX_OPPONENT_MESSAGE_CHARS) {
+                            setInputText(nextRaw.slice(0, MAX_OPPONENT_MESSAGE_CHARS));
+                            setLimitNotice(
+                                `Message capped at ${MAX_OPPONENT_MESSAGE_CHARS.toLocaleString()} characters. Split long emails across multiple rounds.`
+                            );
+                            return;
+                        }
+                        setInputText(nextRaw);
+                        if (limitNotice) setLimitNotice(null);
                         if (analysisError) setAnalysisError(null);
                     }}
+                    onPaste={handleMessagePaste}
                     placeholder={placeholderText}
                     className={textareaClasses}
                     readOnly={isDemo}
                     disabled={isAnalyzing || isCaseClosed}
                 />
+                {(limitNotice || isNearLimit) && (
+                    <div className="text-[10px] font-mono text-slate-400 px-1">
+                        {limitNotice ||
+                            `Approaching the ${MAX_OPPONENT_MESSAGE_CHARS.toLocaleString()} character limit. Consider splitting long messages across rounds.`}
+                    </div>
+                )}
             </div>
 
             <div className={isHero ? "mt-8" : "mt-6"}>
@@ -137,10 +247,16 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                     disabled={actionDisabled}
                     className={`font-bold shadow-lg transition-all ${isHero ? 'bg-gold-600 hover:bg-gold-500 text-navy-950 py-5 text-lg shadow-gold-500/20' : 'bg-gold-600 hover:bg-gold-500 text-navy-950 shadow-gold-500/20'}`}
                 >
-                    {isAnalyzing ? (
+                    {isAnalyzing || isSummarizingMessage ? (
                         <div className="flex items-center gap-2">
                             <RefreshCw className="w-5 h-5 animate-spin" />
-                            <span>{isDemo ? "Loading Demo Round..." : "Analyzing Psychology..."}</span>
+                            <span>
+                                {isSummarizingMessage
+                                    ? "Summarizing Message..."
+                                    : isDemo
+                                      ? "Loading Demo Round..."
+                                      : "Analyzing Psychology..."}
+                            </span>
                         </div>
                     ) : (
                         <div className="flex items-center gap-2">
@@ -153,9 +269,28 @@ const InputSection: React.FC<InputSectionProps> = memo(({
             </div>
 
             {analysisError && (
-                <div className="flex items-center gap-2 text-rose-400 text-sm bg-rose-900/20 p-4 rounded-xl border border-rose-500/20 mt-4 animate-fade-in">
-                    <AlertTriangle className="w-5 h-5 shrink-0" />
-                    <span>{analysisError}</span>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-rose-400 text-sm bg-rose-900/20 p-4 rounded-xl border border-rose-500/20 mt-4 animate-fade-in">
+                    <div className="flex items-start gap-2 flex-1">
+                        <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                        <div>
+                            <div>{analysisError}</div>
+                            {requestId && (
+                                <div className="text-[10px] font-mono text-rose-300/80 mt-1">
+                                    Request ID: {requestId}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    {isTransientError && !isDemo && (
+                        <button
+                            type="button"
+                            onClick={onSubmit}
+                            disabled={isAnalyzing || isSummarizingMessage || isCaseClosed}
+                            className="px-3 py-2 rounded-lg border border-rose-500/40 text-rose-100 hover:text-white hover:border-rose-400 transition-all text-xs font-bold uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-rose-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
+                        >
+                            Retry Analysis
+                        </button>
+                    )}
                 </div>
             )}
         </div>
@@ -199,18 +334,50 @@ const ResponseToneSelector: React.FC<{
 const SingleRoundView: React.FC<{
     round: Round;
     onModeSelect: (id: string, mode: Mode) => void;
+    onRefine: (id: string, instruction: string) => Promise<void>;
     opponentType: string;
     onNextRound: () => void;
     isLatest: boolean;
     userName?: string;
     isDemo?: boolean;
     demoHasNext?: boolean;
-}> = ({ round, onModeSelect, opponentType, onNextRound, isLatest, userName, isDemo = false, demoHasNext = true }) => {
+    canRefine?: boolean;
+}> = ({
+    round,
+    onModeSelect,
+    onRefine,
+    opponentType,
+    onNextRound,
+    isLatest,
+    userName,
+    isDemo = false,
+    demoHasNext = true,
+    canRefine = true
+}) => {
 
     const [showRawText, setShowRawText] = useState(isDemo);
+    const [refineInstruction, setRefineInstruction] = useState("");
+    const [isRefining, setIsRefining] = useState(false);
+    const [refineError, setRefineError] = useState<string | null>(null);
 
     // Helper to get current response text
-    const currentResponse = round.responses[round.selectedMode === 'Peacekeeper' ? 'soft' : round.selectedMode === 'Barrister' ? 'firm' : round.selectedMode === 'Grey Rock' ? 'greyRock' : 'nuclear'] || "";
+    const currentResponse = round.responses[getResponseKey(round.selectedMode)] || "";
+
+    const handleRefine = async () => {
+        const instruction = refineInstruction.trim();
+        if (!instruction) return;
+        setIsRefining(true);
+        setRefineError(null);
+        try {
+            await onRefine(round.id, instruction);
+            setRefineInstruction("");
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to refine response";
+            setRefineError(message);
+        } finally {
+            setIsRefining(false);
+        }
+    };
 
     return (
         <div className="h-full animate-fade-in pb-4">
@@ -329,6 +496,40 @@ const SingleRoundView: React.FC<{
                              ))}
                         </div>
 
+                        {/* Refine Response */}
+                        <div className="bg-navy-950/40 p-3 rounded-lg border border-navy-800/50 space-y-2">
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                Refine Response
+                            </div>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                                <input
+                                    type="text"
+                                    value={refineInstruction}
+                                    onChange={(event) => setRefineInstruction(event.target.value)}
+                                    placeholder="e.g. Make it shorter and firmer."
+                                    disabled={!canRefine || isRefining}
+                                    className="flex-1 bg-navy-950 border border-navy-800 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 outline-none focus:ring-1 focus:ring-gold-500/40 focus:border-gold-500/40 disabled:opacity-60"
+                                />
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={handleRefine}
+                                    disabled={!canRefine || isRefining || !refineInstruction.trim()}
+                                    className="whitespace-nowrap"
+                                >
+                                    {isRefining ? "Refining..." : "Refine"}
+                                </Button>
+                            </div>
+                            {refineError && (
+                                <div className="text-[10px] text-rose-300">{refineError}</div>
+                            )}
+                            {!canRefine && (
+                                <div className="text-[10px] text-slate-500">
+                                    Refinement is unavailable for demo or closed cases.
+                                </div>
+                            )}
+                        </div>
+
                         {/* Editor Area */}
                         <div className="flex-1 relative group">
                             <textarea 
@@ -393,6 +594,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const [senderName, setSenderName] = useState("");
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisError, setAnalysisError] = useState<string | null>(null);
+    const [isStartingPart2, setIsStartingPart2] = useState(false);
     const analyzeInFlight = useRef(false);
     const demoScenario = useMemo(
         () => (activeCase?.demoScenarioId ? DEMO_SCENARIOS[activeCase.demoScenarioId] : undefined),
@@ -552,6 +754,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             ).join('\n\n');
 
             const analysis = await analyzeConflict({
+                caseId: activeCase.id,
                 opponentType: activeCase.opponentType,
                 mode: 'Peacekeeper',
                 goal: 'Hold boundaries',
@@ -613,6 +816,33 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         await store.saveRound(updated);
     };
 
+    const handleRefineResponse = async (roundId: string, instruction: string) => {
+        if (!activeCase) return;
+        const idx = rounds.findIndex(r => r.id === roundId);
+        if (idx === -1) return;
+        const round = rounds[idx];
+        const responseKey = getResponseKey(round.selectedMode);
+        const originalText = round.responses[responseKey] || "";
+        if (!originalText.trim()) {
+            throw new Error("No draft available to refine.");
+        }
+        const revised = await reviseResponse(
+            originalText,
+            instruction,
+            activeCase.planType,
+            activeCase.id
+        );
+        const updatedRound: Round = {
+            ...round,
+            responses: { ...round.responses, [responseKey]: revised }
+        };
+        const updatedRounds = [...rounds];
+        updatedRounds[idx] = updatedRound;
+        setRounds(updatedRounds);
+        await store.saveRound(updatedRound);
+        toast("Response refined.", "success");
+    };
+
     const goToNext = () => {
         if (isDemo && viewIndex === rounds.length - 1) {
             const hasNextDemoRound = demoScenario && rounds.length < demoScenario.rounds.length;
@@ -637,6 +867,33 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         if (!activeCase) return;
         toast("Preparing case file...", "info");
         exportService.printToPDF(activeCase, rounds);
+    };
+
+    const handleDownloadMarkdown = () => {
+        if (!activeCase) return;
+        toast("Generating markdown file...", "info");
+        exportService.downloadMarkdown(activeCase, rounds);
+        toast("Download started.", "success");
+    };
+
+    const handleStartPart2 = async () => {
+        if (!activeCase) return;
+        if (activeCase.planType === "demo") return;
+        if (isStartingPart2) return;
+
+        setIsStartingPart2(true);
+        toast("Summarizing this case for Part 2...", "info");
+        try {
+            const summary = await summarizeCase(rounds, activeCase);
+            const seedText = `Part 2 Case Note (summary of the previous case):\n\n${summary}`.trim();
+            setRouteState("/", { templateText: seedText });
+            router.push("/");
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : "Failed to summarize case";
+            toast(message, "error");
+        } finally {
+            setIsStartingPart2(false);
+        }
     };
 
     if (loading || !activeCase) return <div className="flex items-center justify-center h-screen bg-navy-950"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold-500"></div></div>;
@@ -667,7 +924,11 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 {/* 1. TOP HEADER */}
                 <div className="py-4 flex items-center justify-between border-b border-navy-800 shrink-0">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => router.push('/vault')} className="text-slate-400 hover:text-white transition-colors">
+                        <button
+                            onClick={() => router.push('/vault')}
+                            aria-label="Back to Vault"
+                            className="text-slate-400 hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-gold-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950 rounded"
+                        >
                             <ArrowLeft className="w-5 h-5" />
                         </button>
                         <div>
@@ -680,7 +941,13 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                             </div>
                         </div>
                     </div>
-                    <button onClick={() => router.push('/')} className="p-2 rounded-full hover:bg-navy-900 text-slate-400 hover:text-gold-400"><Home className="w-5 h-5"/></button>
+                    <button
+                        onClick={() => router.push('/')}
+                        aria-label="Go to Start New Case"
+                        className="p-2 rounded-full hover:bg-navy-900 text-slate-400 hover:text-gold-400 focus-visible:ring-2 focus-visible:ring-gold-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
+                    >
+                        <Home className="w-5 h-5" />
+                    </button>
                 </div>
 
                 {/* 2. NAVIGATION BAR & PROGRESS TRACKER (Combined for visual density) */}
@@ -689,7 +956,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                          <button 
                             onClick={goToPrev} 
                             disabled={viewIndex === 0}
-                            className="p-2 rounded-lg border border-navy-800 bg-navy-900 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                            aria-label="Previous round"
+                            className="p-2 rounded-lg border border-navy-800 bg-navy-900 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all focus-visible:ring-2 focus-visible:ring-gold-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
                          >
                              <ChevronLeft className="w-5 h-5" />
                          </button>
@@ -721,7 +989,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                          <button 
                             onClick={goToNext} 
                             disabled={viewIndex === rounds.length}
-                            className="p-2 rounded-lg border border-navy-800 bg-navy-900 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                            aria-label="Next round"
+                            className="p-2 rounded-lg border border-navy-800 bg-navy-900 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all focus-visible:ring-2 focus-visible:ring-gold-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
                          >
                              <ChevronRight className="w-5 h-5" />
                          </button>
@@ -741,6 +1010,82 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                         )}
                     </div>
                 </div>
+
+                {isDemo && !demoHasNext && (
+                    <div className="mb-4 bg-blue-900/20 border border-blue-500/30 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <div className="text-[10px] font-bold text-blue-300 uppercase tracking-widest font-mono">
+                                Demo Complete
+                            </div>
+                            <p className="text-sm text-slate-100 font-semibold mt-1">
+                                Ready to start a real case with full AI analysis?
+                            </p>
+                            <p className="text-xs text-slate-300 mt-1">
+                                Your demo never called the AI. Create a case to generate real responses.
+                            </p>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <Button
+                                onClick={() => router.push("/")}
+                                className="bg-blue-600 hover:bg-blue-500 text-white border-none"
+                            >
+                                Start a Real Case
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                onClick={() => router.push("/auth")}
+                                className="text-blue-200 hover:text-white"
+                            >
+                                Sign In / Join
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
+                {!isDemo && (activeCase.isClosed || remainingCount === 0) && (
+                    <div className="mb-4 bg-navy-900 border border-gold-500/20 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="min-w-0">
+                            <div className="text-[10px] font-bold text-gold-500 uppercase tracking-widest font-mono">
+                                Case Closed
+                            </div>
+                            <p className="text-sm text-slate-200 font-semibold mt-1">
+                                You've reached this case's round limit.
+                            </p>
+                            <p className="text-xs text-slate-400 mt-1">
+                                Export your file, or start a Part 2 with a summary of this case.
+                            </p>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <button
+                                type="button"
+                                onClick={handleDownloadMarkdown}
+                                className="px-4 py-2 rounded-lg bg-navy-950 text-slate-200 border border-navy-800 hover:border-navy-700 hover:bg-navy-900 transition-all text-sm font-bold flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-gold-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
+                            >
+                                <FileText className="w-4 h-4" /> Markdown
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleDownload}
+                                className="px-4 py-2 rounded-lg bg-navy-950 text-slate-200 border border-navy-800 hover:border-navy-700 hover:bg-navy-900 transition-all text-sm font-bold flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-gold-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
+                            >
+                                <Printer className="w-4 h-4" /> Print / PDF
+                            </button>
+                            <Button
+                                type="button"
+                                onClick={handleStartPart2}
+                                disabled={isStartingPart2}
+                                className="bg-gold-600 hover:bg-gold-500 text-navy-950 font-bold border-none flex items-center justify-center gap-2"
+                            >
+                                {isStartingPart2 ? (
+                                    <RefreshCw className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Download className="w-4 h-4" />
+                                )}
+                                Start Part 2
+                            </Button>
+                        </div>
+                    </div>
+                )}
 
                 {/* 3. MAIN CONTENT AREA (Responsive Height) */}
                 <div className="flex-1 min-h-0 relative">
@@ -793,12 +1138,14 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                             <SingleRoundView 
                                 round={currentRound}
                                 onModeSelect={handleModeSelect}
+                                onRefine={handleRefineResponse}
                                 opponentType={activeCase.opponentType}
                                 onNextRound={goToNext}
                                 isLatest={viewIndex === rounds.length - 1}
                                 userName={account?.name}
                                 isDemo={isDemo}
                                 demoHasNext={demoHasNext}
+                                canRefine={!isDemo && !activeCase.isClosed}
                             />
                         )
                     )}

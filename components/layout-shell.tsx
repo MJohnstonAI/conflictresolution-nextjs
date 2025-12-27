@@ -162,7 +162,11 @@ const ModelListModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <h3 className="font-serif font-bold text-slate-100 flex items-center gap-2">
             <Settings className="w-4 h-4 text-gold-500" /> OpenRouter Models
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200">
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="text-slate-400 hover:text-slate-200 rounded focus-visible:ring-2 focus-visible:ring-gold-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -353,7 +357,11 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <h3 className="font-serif font-bold text-slate-100 flex items-center gap-2">
             <Settings className="w-4 h-4 text-gold-500" /> Settings
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200">
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="text-slate-400 hover:text-slate-200 rounded focus-visible:ring-2 focus-visible:ring-gold-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>

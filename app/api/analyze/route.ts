@@ -5,14 +5,40 @@ import {
   resolveModelSlug,
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
+import { getClientIp, rateLimit, retryAfterSeconds } from "@/lib/server/rate-limit";
+import { requireAiAuth } from "@/lib/server/ai-auth";
+import { requireCaseAccess } from "@/lib/server/ai-case-guard";
 
 export const runtime = "nodejs";
 
+const errorResponse = (message: string, status: number) =>
+  NextResponse.json({ error: { message, upstreamStatus: status } }, { status });
+
+const coercePositiveInt = (value: unknown, fallback: number) => {
+  const num = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(num) && num > 0 ? Math.floor(num) : fallback;
+};
+
 export async function POST(request: NextRequest) {
   if (!process.env.OPENROUTER_API_KEY) {
+    return errorResponse("Missing OPENROUTER_API_KEY", 500);
+  }
+
+  const authGuard = await requireAiAuth(request);
+  if (!authGuard.ok) return authGuard.error;
+
+  const ip = getClientIp(request);
+  const limit = rateLimit(`analyze:${ip}`, 8, 60_000);
+  if (!limit.allowed) {
+    const retryAfter = retryAfterSeconds(limit.resetAt);
     return NextResponse.json(
-      { error: { message: "Missing OPENROUTER_API_KEY", upstreamStatus: 500 } },
-      { status: 500 }
+      {
+        error: {
+          message: `Rate limit exceeded. Please wait ${retryAfter}s and try again.`,
+          upstreamStatus: 429,
+        },
+      },
+      { status: 429, headers: { "Retry-After": String(retryAfter) } }
     );
   }
 
@@ -20,13 +46,11 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: { message: "Invalid JSON payload", upstreamStatus: 400 } },
-      { status: 400 }
-    );
+    return errorResponse("Invalid JSON payload", 400);
   }
 
   const {
+    caseId,
     opponentType,
     contextSummary,
     historyText,
@@ -36,12 +60,27 @@ export async function POST(request: NextRequest) {
     senderIdentity,
   } = body || {};
 
+  if (planType === "demo") {
+    return errorResponse("Demo mode does not call AI", 400);
+  }
+
   const MAX_INPUT_CHARS = 15000;
+  const HISTORY_LIMIT_CHARS = 6000;
   const CONTEXT_SUMMARY_LIMIT_CHARS = 40000;
+  const OPPONENT_LIMIT_CHARS = 80;
+  const SENDER_LIMIT_CHARS = 80;
   const BUSINESS_OUTPUT_LIMIT = 2000;
+  const contextBudget = coercePositiveInt(process.env.ANALYZE_CONTEXT_BUDGET_CHARS, 8000);
+  const historyBudget = coercePositiveInt(process.env.ANALYZE_HISTORY_BUDGET_CHARS, 2000);
+  const summarizeContext = process.env.ENABLE_ANALYZE_CONTEXT_SUMMARY === "true";
   const truncatedText = (currentText || "").slice(0, MAX_INPUT_CHARS);
   const truncatedContextSummary =
     typeof contextSummary === "string" ? contextSummary.slice(0, CONTEXT_SUMMARY_LIMIT_CHARS) : "";
+  const truncatedHistoryText =
+    typeof historyText === "string" ? historyText.slice(0, HISTORY_LIMIT_CHARS) : "";
+  const safeOpponentType = typeof opponentType === "string" ? opponentType.slice(0, OPPONENT_LIMIT_CHARS) : "";
+  const safeSenderIdentity =
+    typeof senderIdentity === "string" ? senderIdentity.slice(0, SENDER_LIMIT_CHARS) : "";
 
   const SYSTEM_INSTRUCTION = `
 You are Conflict Resolution AI.
@@ -88,31 +127,85 @@ Analyze the input and generate 4 strategic response drafts.
 }
 `;
 
-  const prompt = `
-    **CONTEXT:**
-    Adversary: ${opponentType}
-    Note: ${truncatedContextSummary}
-
-    **HISTORY:**
-    ${historyText ? historyText : "(None)"}
-
-    **LATEST MESSAGE (Analyze This):**
-    ${senderIdentity ? `From: ${senderIdentity}` : ""}
-    "${truncatedText}"
-
-    Return JSON matching this schema:
-    ${ANALYSIS_SCHEMA}
-  `;
-
   let maxOutputTokens = BUSINESS_OUTPUT_LIMIT;
   if (planType === "premium" && useDeepThinking) {
     maxOutputTokens = 4000;
   }
 
   try {
-    const authHeader = request.headers.get("authorization");
-    const authToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const modelSlug = await resolveModelSlug(planType, authToken);
+    const caseGuard = await requireCaseAccess({
+      caseId: typeof caseId === "string" ? caseId : null,
+      userId: authGuard.userId,
+      planType,
+      requireOpen: true,
+    });
+    if (!caseGuard.ok) return caseGuard.error;
+
+    const modelSlug = await resolveModelSlug(planType, authGuard.token);
+
+    const summarizeForAnalyze = async (label: string, text: string, limitChars: number) => {
+      const system = `
+You are summarizing conflict case input for a downstream AI prompt.
+Preserve identities, facts, dates, threats, asks, and key emotional tone.
+Return plain text only. No markdown. Keep it <= ${limitChars} characters.
+`;
+      const prompt = `
+Summarize the following ${label} to fit within the limit while preserving critical details:
+
+--- BEGIN ${label.toUpperCase()} ---
+${text}
+--- END ${label.toUpperCase()} ---
+`;
+      const summary = await callOpenRouterChat({
+        model: modelSlug,
+        messages: [
+          { role: "system", content: system.trim() },
+          { role: "user", content: prompt.trim() },
+        ],
+        temperature: 0.2,
+        max_tokens: 1200,
+      });
+      const trimmed = summary.trim();
+      return trimmed.length > limitChars ? trimmed.slice(0, limitChars) : trimmed;
+    };
+
+    let finalContextSummary = truncatedContextSummary;
+    let finalHistoryText = truncatedHistoryText;
+
+    if (summarizeContext) {
+      const boundedContextBudget = Math.min(contextBudget, CONTEXT_SUMMARY_LIMIT_CHARS);
+      const boundedHistoryBudget = Math.min(historyBudget, HISTORY_LIMIT_CHARS);
+      if (finalContextSummary.length > boundedContextBudget) {
+        try {
+          finalContextSummary = await summarizeForAnalyze("case context", finalContextSummary, boundedContextBudget);
+        } catch {
+          finalContextSummary = finalContextSummary.slice(0, boundedContextBudget);
+        }
+      }
+      if (finalHistoryText.length > boundedHistoryBudget) {
+        try {
+          finalHistoryText = await summarizeForAnalyze("recent history", finalHistoryText, boundedHistoryBudget);
+        } catch {
+          finalHistoryText = finalHistoryText.slice(0, boundedHistoryBudget);
+        }
+      }
+    }
+
+    const prompt = `
+    **CONTEXT:**
+    Adversary: ${safeOpponentType}
+    Note: ${finalContextSummary}
+
+    **HISTORY:**
+    ${finalHistoryText ? finalHistoryText : "(None)"}
+
+    **LATEST MESSAGE (Analyze This):**
+    ${safeSenderIdentity ? `From: ${safeSenderIdentity}` : ""}
+    "${truncatedText}"
+
+    Return JSON matching this schema:
+    ${ANALYSIS_SCHEMA}
+  `;
 
     const text = await callOpenRouterChat({
       model: modelSlug,
