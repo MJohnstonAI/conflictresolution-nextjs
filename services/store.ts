@@ -98,20 +98,29 @@ const FALLBACK_STORIES: SuccessStory[] = [
 
 // --- DB MAPPING UTILS ---
 
-const mapCaseFromDB = (row: any): Case => ({
-  id: row.id,
-  title: row.title,
-  opponentType: row.opponent_type,
-  createdAt: row.created_at,
-  lastUpdatedAt: row.created_at,
-  planType: row.plan_type,
-  // FIXED: Changed rounds_limit to roundsLimit to match Case interface
-  roundsLimit: row.rounds_limit,
-  roundsUsed: row.rounds_used,
-  isClosed: row.is_closed,
-  note: row.note,
-  demoScenarioId: row.demo_scenario_id
-});
+const mapCaseFromDB = (row: any): Case => {
+  const planType = row.plan_type;
+  const fallbackLimit = planType === "premium" ? 40 : planType === "standard" ? 10 : 3;
+  const roundsLimitRaw = Number(row.rounds_limit);
+  const roundsUsedRaw = Number(row.rounds_used);
+  const roundsLimit =
+    Number.isFinite(roundsLimitRaw) && roundsLimitRaw > 0 ? roundsLimitRaw : fallbackLimit;
+  const roundsUsed = Number.isFinite(roundsUsedRaw) && roundsUsedRaw >= 0 ? roundsUsedRaw : 0;
+
+  return {
+    id: row.id,
+    title: row.title,
+    opponentType: row.opponent_type,
+    createdAt: row.created_at,
+    lastUpdatedAt: row.created_at,
+    planType: planType,
+    roundsLimit,
+    roundsUsed,
+    isClosed: row.is_closed,
+    note: row.note,
+    demoScenarioId: row.demo_scenario_id
+  };
+};
 
 const mapRoundFromDB = (row: any): Round => {
   const data = row.analysis_data || {};
@@ -135,7 +144,8 @@ const mapRoundFromDB = (row: any): Round => {
     analysisSummary: data.analysisSummary,
     responses: data.responses || {},
     expertInsights: data.expertInsights,
-    rerollsUsed: data.rerollsUsed || 0
+    rerollsUsed: data.rerollsUsed || 0,
+    modelSlug: data.modelSlug
   };
 };
 
@@ -514,7 +524,8 @@ export const store = {
             responses: newRound.responses,
             expertInsights: newRound.expertInsights,
             userGoal: newRound.userGoal,
-            rerollsUsed: newRound.rerollsUsed
+            rerollsUsed: newRound.rerollsUsed,
+            modelSlug: newRound.modelSlug
         };
 
         const payload = {

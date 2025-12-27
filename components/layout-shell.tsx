@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/UI";
 import { Toaster } from "@/components/DesignSystem";
@@ -29,17 +29,310 @@ import {
   Zap,
 } from "lucide-react";
 
-const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [currentTheme, setCurrentTheme] = useState<Theme>(themeService.get());
+const MARKET_LEADER_PROVIDERS = [
+  { key: "openai", label: "OpenAI", prefix: "openai/" },
+  { key: "anthropic", label: "Anthropic", prefix: "anthropic/" },
+  { key: "google", label: "Google", prefix: "google/" },
+  { key: "xai", label: "xAI", prefix: "x-ai/" },
+  { key: "deepseek", label: "DeepSeek", prefix: "deepseek/" },
+  { key: "meta", label: "Meta", prefix: "meta-llama/" },
+  { key: "mistral", label: "Mistral", prefix: "mistralai/" },
+];
+
+type OpenRouterModel = {
+  id: string;
+  name?: string;
+  context_length?: number;
+  pricing?: {
+    prompt?: string;
+    completion?: string;
+  };
+  architecture?: {
+    modality?: string;
+  };
+};
+
+type PlanKey = "standard" | "premium";
+
+type ProviderGroup = {
+  key: string;
+  label: string;
+  prefix: string;
+  models: OpenRouterModel[];
+};
+
+const formatPrice = (value?: string) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return "n/a";
+  const perMillion = num * 1000000;
+  const decimals = perMillion < 1 ? 4 : 2;
+  return `$${perMillion.toFixed(decimals)}/1M`;
+};
+
+const formatContext = (value?: number) =>
+  Number.isFinite(value) && value ? value.toLocaleString() : "n/a";
+
+const safeParseJson = (text: string) => {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
+
+const parseOpenRouterModelsPayload = (payload: any): OpenRouterModel[] => {
+  const data = Array.isArray(payload?.data) ? payload.data : [];
+  return data.filter((model) => model && typeof model.id === "string");
+};
+
+const loadOpenRouterModels = async (): Promise<OpenRouterModel[]> => {
+  const response = await fetch("/api/models");
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(text || `Request failed with ${response.status}`);
+  }
+  const payload = safeParseJson(text);
+  return parseOpenRouterModelsPayload(payload);
+};
+
+const buildProviderGroups = (models: OpenRouterModel[]): ProviderGroup[] =>
+  MARKET_LEADER_PROVIDERS.map((provider) => {
+    const providerModels = models
+      .filter((model) => model?.id?.startsWith(provider.prefix))
+      .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+    return { ...provider, models: providerModels };
+  });
+
+const ensureCurrentModelGroup = (groups: ProviderGroup[], currentModel: string) => {
+  if (!currentModel) return groups;
+  const hasCurrent = groups.some((group) => group.models.some((model) => model.id === currentModel));
+  if (hasCurrent) return groups;
+  return [
+    {
+      key: "current",
+      label: "Current",
+      prefix: "",
+      models: [{ id: currentModel, name: `${currentModel} (current)` }],
+    },
+    ...groups,
+  ];
+};
+
+const getAuthHeaders = async (): Promise<Record<string, string>> => {
+  const session = await authService.getSession();
+  const token = session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const ModelListModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [models, setModels] = useState<OpenRouterModel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setCurrentTheme(themeService.get());
+    let isMounted = true;
+    const loadModels = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await loadOpenRouterModels();
+        if (isMounted) setModels(data);
+      } catch (err) {
+        if (isMounted) {
+          setError(err instanceof Error ? err.message : "Failed to load models");
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    loadModels();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const providers = buildProviderGroups(models);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm animate-fade-in">
+      <div className="bg-navy-900 border border-navy-800 rounded-2xl w-full max-w-5xl shadow-2xl overflow-hidden">
+        <div className="flex justify-between items-center p-4 border-b border-navy-800">
+          <h3 className="font-serif font-bold text-slate-100 flex items-center gap-2">
+            <Settings className="w-4 h-4 text-gold-500" /> OpenRouter Models
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-200">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-xs text-slate-400">
+            Source: /api/models. Filtered to market leaders: OpenAI, Anthropic, Google, xAI, DeepSeek,
+            Meta, Mistral.
+          </p>
+          {loading ? (
+            <div className="text-sm text-slate-400">Loading model list...</div>
+          ) : error ? (
+            <div className="text-sm text-rose-400">{error}</div>
+          ) : (
+            <div className="space-y-6 max-h-[65vh] overflow-y-auto pr-2">
+              {providers.map((provider) => (
+                <div key={provider.key} className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                      {provider.label}
+                    </span>
+                    <span className="text-[10px] text-slate-500">{provider.models.length} models</span>
+                  </div>
+                  {provider.models.length ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {provider.models.map((model) => (
+                        <div
+                          key={model.id}
+                          className="bg-navy-950/60 border border-navy-800 rounded-xl p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-slate-100">
+                                {model.name || model.id}
+                              </div>
+                              <div className="text-[11px] text-slate-400 font-mono break-all">
+                                {model.id}
+                              </div>
+                            </div>
+                            <span className="text-[10px] uppercase tracking-widest text-slate-500">
+                              {model.architecture?.modality || "text"}
+                            </span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+                            <div>
+                              <span className="text-slate-500 uppercase tracking-widest text-[9px] font-bold">
+                                Context
+                              </span>
+                              <div className="text-slate-300">{formatContext(model.context_length)}</div>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 uppercase tracking-widest text-[9px] font-bold">
+                                Pricing
+                              </span>
+                              <div className="text-slate-300">
+                                P {formatPrice(model.pricing?.prompt)} / C {formatPrice(model.pricing?.completion)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500">No models found.</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="p-4 border-t border-navy-800 flex justify-end">
+          <Button onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [currentTheme, setCurrentTheme] = useState<Theme>(themeService.get());
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showModelList, setShowModelList] = useState(false);
+  const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
+  const [modelSelections, setModelSelections] = useState<Record<PlanKey, string>>({
+    standard: "",
+    premium: "",
+  });
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [modelsSaving, setModelsSaving] = useState<PlanKey | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const init = async () => {
+      setCurrentTheme(themeService.get());
+      const account = await store.getAccount();
+      if (!isMounted) return;
+      setIsAdmin(account.isAdmin);
+      if (!account.isAdmin) return;
+
+      setModelsLoading(true);
+      setModelsError(null);
+      try {
+        const modelList = await loadOpenRouterModels();
+        if (isMounted) setAvailableModels(modelList);
+        const authHeaders = await getAuthHeaders();
+        const response = await fetch("/api/admin/models", { headers: authHeaders });
+        const text = await response.text();
+        if (!response.ok) {
+          throw new Error(text || `Request failed with ${response.status}`);
+        }
+        const payload = safeParseJson(text);
+        const standardModel = payload?.data?.standard?.modelSlug || "";
+        const premiumModel = payload?.data?.premium?.modelSlug || "";
+        if (isMounted) {
+          setModelSelections({ standard: standardModel, premium: premiumModel });
+        }
+      } catch (err) {
+        if (isMounted) {
+          setModelsError(err instanceof Error ? err.message : "Failed to load model settings");
+        }
+      } finally {
+        if (isMounted) setModelsLoading(false);
+      }
+    };
+
+    init();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleThemeChange = (theme: Theme) => {
     themeService.set(theme);
     setCurrentTheme(theme);
     store.updateUserTheme(theme);
+  };
+
+  const providerGroups = useMemo(() => buildProviderGroups(availableModels), [availableModels]);
+  const standardGroups = useMemo(
+    () => ensureCurrentModelGroup(providerGroups, modelSelections.standard),
+    [providerGroups, modelSelections.standard]
+  );
+  const premiumGroups = useMemo(
+    () => ensureCurrentModelGroup(providerGroups, modelSelections.premium),
+    [providerGroups, modelSelections.premium]
+  );
+
+  const handleModelChange = async (planType: PlanKey, modelSlug: string) => {
+    if (!modelSlug || modelSlug === modelSelections[planType]) return;
+    setModelsSaving(planType);
+    setModelsError(null);
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch("/api/admin/models", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({ planType, modelSlug }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error(text || `Request failed with ${response.status}`);
+      }
+      const payload = safeParseJson(text);
+      const updatedSlug = payload?.data?.modelSlug || modelSlug;
+      setModelSelections((prev) => ({ ...prev, [planType]: updatedSlug }));
+    } catch (err) {
+      setModelsError(err instanceof Error ? err.message : "Failed to update model");
+    } finally {
+      setModelsSaving(null);
+    }
   };
 
   const allThemes = [
@@ -88,6 +381,107 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               ))}
             </div>
           </div>
+          {isAdmin && (
+            <div className="space-y-3">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+                OpenRouter Models
+              </label>
+              {modelsLoading ? (
+                <div className="text-xs text-slate-400">Loading model settings...</div>
+              ) : (
+                <div className="space-y-4">
+                  {modelsError && <div className="text-xs text-rose-400">{modelsError}</div>}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">
+                      Standard
+                    </label>
+                    <select
+                      value={modelSelections.standard}
+                      onChange={(event) => handleModelChange("standard", event.target.value)}
+                      disabled={modelsSaving === "standard"}
+                      className="w-full bg-navy-950 border border-navy-800 hover:border-navy-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-gold-500/20 transition-all disabled:opacity-60"
+                    >
+                      <option value="" disabled>
+                        Select a model...
+                      </option>
+                      {standardGroups.map((group) =>
+                        group.models.length ? (
+                          <optgroup key={group.key} label={group.label}>
+                            {group.models.map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.name || model.id}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null
+                      )}
+                    </select>
+                    {modelsSaving === "standard" && (
+                      <div className="text-[11px] text-slate-500">Saving standard model...</div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">
+                      Premium
+                    </label>
+                    <select
+                      value={modelSelections.premium}
+                      onChange={(event) => handleModelChange("premium", event.target.value)}
+                      disabled={modelsSaving === "premium"}
+                      className="w-full bg-navy-950 border border-navy-800 hover:border-navy-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-gold-500/20 transition-all disabled:opacity-60"
+                    >
+                      <option value="" disabled>
+                        Select a model...
+                      </option>
+                      {premiumGroups.map((group) =>
+                        group.models.length ? (
+                          <optgroup key={group.key} label={group.label}>
+                            {group.models.map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.name || model.id}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null
+                      )}
+                    </select>
+                    {modelsSaving === "premium" && (
+                      <div className="text-[11px] text-slate-500">Saving premium model...</div>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Auto-filtered from /api/models for OpenAI, Anthropic, Google, xAI, DeepSeek, Meta, and Mistral.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="space-y-3">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+              Admin Tools
+            </label>
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => isAdmin && setShowModelList(true)}
+                disabled={!isAdmin}
+                className={`flex-1 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border transition-all ${
+                  isAdmin
+                    ? "bg-navy-900 border-navy-700 text-slate-100 hover:border-gold-500/50"
+                    : "bg-navy-950 border-navy-900 text-slate-500 opacity-50 cursor-not-allowed"
+                }`}
+                aria-disabled={!isAdmin}
+              >
+                <span className="text-sm font-semibold">Open Router Models</span>
+                <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500">
+                  {isAdmin ? "Manage" : "Admin only"}
+                </span>
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Curated list of market leaders for quick reference and testing.
+            </p>
+          </div>
           <div className="pt-2">
             <Button fullWidth onClick={onClose}>
               Done
@@ -95,6 +489,7 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </div>
         </div>
       </div>
+      {showModelList && <ModelListModal onClose={() => setShowModelList(false)} />}
     </div>
   );
 };
@@ -272,3 +667,4 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
 };
 
 export default LayoutShell;
+

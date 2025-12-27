@@ -1,23 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callOpenRouterChat, resolveModelSlug } from "@/lib/server/openrouter";
+import {
+  callOpenRouterChat,
+  isOpenRouterError,
+  resolveModelSlug,
+  toOpenRouterErrorPayload,
+} from "@/lib/server/openrouter";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   if (!process.env.OPENROUTER_API_KEY) {
-    return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+    return NextResponse.json(
+      { error: { message: "Missing OPENROUTER_API_KEY", upstreamStatus: 500 } },
+      { status: 500 }
+    );
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+    return NextResponse.json(
+      { error: { message: "Invalid JSON payload", upstreamStatus: 400 } },
+      { status: 400 }
+    );
   }
 
   const { rounds, caseInfo } = body || {};
   if (!rounds || !caseInfo) {
-    return NextResponse.json({ error: "Missing rounds or caseInfo" }, { status: 400 });
+    return NextResponse.json(
+      { error: { message: "Missing rounds or caseInfo", upstreamStatus: 400 } },
+      { status: 400 }
+    );
   }
 
   const historyLog = rounds
@@ -52,7 +66,14 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ summary: text });
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to generate summary" }, { status: 500 });
+  } catch (error: any) {
+    if (isOpenRouterError(error)) {
+      return NextResponse.json(
+        { error: toOpenRouterErrorPayload(error) },
+        { status: error.upstreamStatus || 502 }
+      );
+    }
+    const message = error?.message || "Failed to generate summary";
+    return NextResponse.json({ error: { message, upstreamStatus: 500 } }, { status: 500 });
   }
 }

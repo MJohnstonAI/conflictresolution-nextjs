@@ -4,11 +4,41 @@ import type { PlanType } from "@/types";
 type PlanKey = "standard" | "premium";
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
+type OpenRouterErrorDetails = {
+  message: string;
+  code?: string;
+  upstreamStatus?: number;
+  requestId?: string | null;
+};
+
+export class OpenRouterError extends Error {
+  code?: string;
+  upstreamStatus?: number;
+  requestId?: string | null;
+
+  constructor(details: OpenRouterErrorDetails) {
+    super(details.message);
+    this.code = details.code;
+    this.upstreamStatus = details.upstreamStatus;
+    this.requestId = details.requestId;
+  }
+}
+
+export const isOpenRouterError = (error: unknown): error is OpenRouterError =>
+  error instanceof OpenRouterError;
+
+export const toOpenRouterErrorPayload = (error: OpenRouterError): OpenRouterErrorDetails => ({
+  message: error.message,
+  code: error.code,
+  upstreamStatus: error.upstreamStatus,
+  requestId: error.requestId ?? undefined,
+});
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const openRouterKey = process.env.OPENROUTER_API_KEY;
 const openRouterBaseUrl = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
-const openRouterReferer = process.env.OPENROUTER_REFERER || process.env.NEXT_PUBLIC_SITE_URL;
+const openRouterReferer = process.env.OPENROUTER_REFERER || "https://localhost:3000";
 const openRouterTitle = process.env.OPENROUTER_TITLE || "conflictresolution-nextjs";
 const openRouterRetryMax = Number(process.env.OPENROUTER_RETRY_MAX || 3);
 const openRouterRetryBaseMs = Number(process.env.OPENROUTER_RETRY_BASE_MS || 800);
@@ -17,9 +47,65 @@ const openRouterRetryMaxMs = Number(process.env.OPENROUTER_RETRY_MAX_MS || 8000)
 const parsePositiveNumber = (value: number, fallback: number) =>
   Number.isFinite(value) && value > 0 ? value : fallback;
 
+const openRouterTimeoutMs = parsePositiveNumber(Number(process.env.OPENROUTER_TIMEOUT_MS || 30000), 30000);
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const shouldRetryStatus = (status: number) => status === 429 || status === 502 || status === 503 || status === 504;
+
+const buildOpenRouterHeaders = (): Record<string, string> => {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${openRouterKey}`,
+    "Content-Type": "application/json",
+  };
+  if (openRouterReferer) {
+    headers["HTTP-Referer"] = openRouterReferer;
+  }
+  if (openRouterTitle) {
+    headers["X-Title"] = openRouterTitle;
+  }
+  return headers;
+};
+
+const getRequestId = (response: Response) =>
+  response.headers.get("x-openrouter-request-id") || response.headers.get("x-request-id");
+
+const readResponsePayload = async (response: Response) => {
+  const responseText = await response.text();
+  let payload: any = null;
+  if (responseText) {
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      payload = null;
+    }
+  }
+  return { responseText, payload };
+};
+
+const createOpenRouterError = (response: Response, payload: any, responseText: string) => {
+  const message =
+    payload?.error?.message || payload?.message || responseText || `OpenRouter error ${response.status}`;
+  const rawCode = payload?.error?.code || payload?.code;
+  const code =
+    typeof rawCode === "string"
+      ? rawCode
+      : typeof rawCode === "number" && Number.isFinite(rawCode)
+        ? String(rawCode)
+        : undefined;
+  return new OpenRouterError({
+    message,
+    code,
+    upstreamStatus: response.status,
+    requestId: getRequestId(response),
+  });
+};
+
+const createTimeoutSignal = (timeoutMs: number) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  return { signal: controller.signal, cancel: () => clearTimeout(timeout) };
+};
 
 const supabaseAdmin =
   supabaseUrl && serviceRoleKey
@@ -107,27 +193,20 @@ export const callOpenRouterChat = async (params: {
   max_tokens?: number;
 }): Promise<string> => {
   if (!openRouterKey) {
-    throw new Error("Server configuration error");
+    throw new Error("Missing OPENROUTER_API_KEY");
   }
 
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${openRouterKey}`,
-    "Content-Type": "application/json",
-  };
-  if (openRouterReferer) {
-    headers["HTTP-Referer"] = openRouterReferer;
-  }
-  if (openRouterTitle) {
-    headers["X-Title"] = openRouterTitle;
-  }
-
+  const headers = buildOpenRouterHeaders();
   const maxAttempts = Math.max(1, parsePositiveNumber(openRouterRetryMax, 3));
   const baseDelayMs = parsePositiveNumber(openRouterRetryBaseMs, 800);
   const maxDelayMs = parsePositiveNumber(openRouterRetryMaxMs, 8000);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     let response: Response;
+    let cancelTimeout = () => undefined;
     try {
+      const timeout = createTimeoutSignal(openRouterTimeoutMs);
+      cancelTimeout = timeout.cancel;
       response = await fetch(`${openRouterBaseUrl}/chat/completions`, {
         method: "POST",
         headers,
@@ -137,30 +216,26 @@ export const callOpenRouterChat = async (params: {
           temperature: params.temperature,
           max_tokens: params.max_tokens,
         }),
+        signal: timeout.signal,
       });
     } catch (error: any) {
+      cancelTimeout();
       if (attempt < maxAttempts) {
         const delay = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
         const jittered = delay * (0.5 + Math.random());
         await sleep(jittered);
         continue;
       }
-      throw new Error(error?.message || "Network error calling AI provider");
+      const isAbort = error?.name === "AbortError";
+      const message = isAbort ? "OpenRouter request timed out" : error?.message || "Network error calling AI provider";
+      throw new Error(message);
+    } finally {
+      cancelTimeout();
     }
 
-    const responseText = await response.text();
-    let payload: any = null;
-    if (responseText) {
-      try {
-        payload = JSON.parse(responseText);
-      } catch {
-        payload = null;
-      }
-    }
+    const { responseText, payload } = await readResponsePayload(response);
 
     if (!response.ok) {
-      const detail = payload?.error?.message || responseText;
-      const suffix = detail ? `: ${detail}` : "";
       if (attempt < maxAttempts && shouldRetryStatus(response.status)) {
         const retryAfter = response.headers.get("retry-after");
         let delay = baseDelayMs * 2 ** (attempt - 1);
@@ -175,7 +250,7 @@ export const callOpenRouterChat = async (params: {
         await sleep(jittered);
         continue;
       }
-      throw new Error(`OpenRouter error ${response.status}${suffix}`);
+      throw createOpenRouterError(response, payload, responseText);
     }
 
     if (!payload) {
@@ -191,4 +266,39 @@ export const callOpenRouterChat = async (params: {
   }
 
   throw new Error("AI provider retry limit exceeded");
+};
+
+export const fetchOpenRouterModels = async () => {
+  if (!openRouterKey) {
+    throw new Error("Missing OPENROUTER_API_KEY");
+  }
+
+  const headers = buildOpenRouterHeaders();
+  let response: Response;
+  let cancelTimeout = () => undefined;
+  try {
+    const timeout = createTimeoutSignal(openRouterTimeoutMs);
+    cancelTimeout = timeout.cancel;
+    response = await fetch(`${openRouterBaseUrl}/models`, {
+      method: "GET",
+      headers,
+      signal: timeout.signal,
+    });
+  } catch (error: any) {
+    cancelTimeout();
+    const isAbort = error?.name === "AbortError";
+    const message = isAbort ? "OpenRouter request timed out" : error?.message || "Network error calling AI provider";
+    throw new Error(message);
+  } finally {
+    cancelTimeout();
+  }
+
+  const { responseText, payload } = await readResponsePayload(response);
+  if (!response.ok) {
+    throw createOpenRouterError(response, payload, responseText);
+  }
+  if (!payload) {
+    throw new Error("Invalid JSON from AI provider");
+  }
+  return payload;
 };

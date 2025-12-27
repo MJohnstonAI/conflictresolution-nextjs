@@ -1,18 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callOpenRouterChat, resolveModelSlug } from "@/lib/server/openrouter";
+import {
+  callOpenRouterChat,
+  isOpenRouterError,
+  resolveModelSlug,
+  toOpenRouterErrorPayload,
+} from "@/lib/server/openrouter";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   if (!process.env.OPENROUTER_API_KEY) {
-    return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+    return NextResponse.json(
+      { error: { message: "Missing OPENROUTER_API_KEY", upstreamStatus: 500 } },
+      { status: 500 }
+    );
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+    return NextResponse.json(
+      { error: { message: "Invalid JSON payload", upstreamStatus: 400 } },
+      { status: 400 }
+    );
   }
 
   const {
@@ -26,8 +37,11 @@ export async function POST(request: NextRequest) {
   } = body || {};
 
   const MAX_INPUT_CHARS = 15000;
+  const CONTEXT_SUMMARY_LIMIT_CHARS = 40000;
   const BUSINESS_OUTPUT_LIMIT = 2000;
   const truncatedText = (currentText || "").slice(0, MAX_INPUT_CHARS);
+  const truncatedContextSummary =
+    typeof contextSummary === "string" ? contextSummary.slice(0, CONTEXT_SUMMARY_LIMIT_CHARS) : "";
 
   const SYSTEM_INSTRUCTION = `
 You are Conflict Resolution AI.
@@ -77,7 +91,7 @@ Analyze the input and generate 4 strategic response drafts.
   const prompt = `
     **CONTEXT:**
     Adversary: ${opponentType}
-    Note: ${contextSummary}
+    Note: ${truncatedContextSummary}
 
     **HISTORY:**
     ${historyText ? historyText : "(None)"}
@@ -123,11 +137,16 @@ Analyze the input and generate 4 strategic response drafts.
     jsonString = jsonString.replace(/[\n\r]+/g, " ");
 
     const parsed = JSON.parse(jsonString);
-    return NextResponse.json(parsed);
+    return NextResponse.json({ ...parsed, modelSlug });
   } catch (error: any) {
-    return NextResponse.json(
-      { error: "AI Generation Failed", details: error?.message || "Unknown error" },
-      { status: 500 }
-    );
+    if (isOpenRouterError(error)) {
+      return NextResponse.json(
+        { error: toOpenRouterErrorPayload(error) },
+        { status: error.upstreamStatus || 502 }
+      );
+    }
+
+    const message = error?.message || "AI Generation Failed";
+    return NextResponse.json({ error: { message, upstreamStatus: 500 } }, { status: 500 });
   }
 }

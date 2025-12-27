@@ -183,8 +183,9 @@ export const Vault: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
             {filteredCases.map(c => {
                 const caseNum = caseNumberMap.get(c.id) || 0;
-                const remaining = Math.max(0, (c as any).rounds_limit - c.roundsUsed);
-                const progressPercentage = (c.roundsUsed / (c as any).rounds_limit) * 100;
+                const roundsLimit = c.roundsLimit || (c.planType === "premium" ? 40 : 10);
+                const remaining = Math.max(0, roundsLimit - c.roundsUsed);
+                const progressPercentage = (c.roundsUsed / roundsLimit) * 100;
                 
                 return (
                    <div key={c.id} onClick={() => router.push(`/case/${c.id}`)} className={`group bg-navy-900 border rounded-2xl p-6 relative overflow-visible transition-all hover:shadow-2xl hover:shadow-black/40 cursor-pointer ${c.planType === 'premium' ? 'border-gold-500/20 hover:border-gold-500/60 bg-gradient-to-br from-navy-900 to-navy-950' : 'border-navy-800 hover:border-navy-700'}`}>

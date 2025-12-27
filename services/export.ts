@@ -76,22 +76,11 @@ export const exportService = {
      * Users can choose "Save as PDF" from the print dialog.
      */
     printToPDF: (activeCase: Case, rounds: Round[]) => {
-        // 1. Create invisible iframe
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.top = '0';
-        iframe.style.left = '0';
-        iframe.style.width = '1px';
-        iframe.style.height = '1px';
-        iframe.style.opacity = '0';
-        iframe.style.pointerEvents = 'none';
-        iframe.style.zIndex = '99999';
-        document.body.appendChild(iframe);
+        const existingOverlay = document.getElementById('cr-print-overlay');
+        if (existingOverlay) {
+            existingOverlay.remove();
+        }
 
-        const doc = iframe.contentWindow?.document;
-        if (!doc) return;
-
-        // 2. Generate Print-Optimized HTML
         const content = `
             <!DOCTYPE html>
             <html lang="en">
@@ -205,20 +194,128 @@ export const exportService = {
             </html>
         `;
 
-        // 3. Write and Print
+        // Build an in-app modal so the print dialog doesn't steal the tab.
+        const overlay = document.createElement('div');
+        overlay.id = 'cr-print-overlay';
+        overlay.style.position = 'fixed';
+        overlay.style.inset = '0';
+        overlay.style.background = 'rgba(2, 6, 23, 0.75)';
+        overlay.style.backdropFilter = 'blur(6px)';
+        overlay.style.zIndex = '100000';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.padding = '24px';
+
+        const modal = document.createElement('div');
+        modal.style.width = 'min(1100px, 96vw)';
+        modal.style.height = 'min(90vh, 900px)';
+        modal.style.background = '#0b1220';
+        modal.style.border = '1px solid rgba(148, 163, 184, 0.2)';
+        modal.style.borderRadius = '16px';
+        modal.style.boxShadow = '0 20px 60px rgba(0, 0, 0, 0.45)';
+        modal.style.display = 'flex';
+        modal.style.flexDirection = 'column';
+        modal.style.overflow = 'hidden';
+
+        const header = document.createElement('div');
+        header.style.display = 'flex';
+        header.style.alignItems = 'center';
+        header.style.justifyContent = 'space-between';
+        header.style.padding = '14px 18px';
+        header.style.borderBottom = '1px solid rgba(148, 163, 184, 0.2)';
+        header.style.color = '#e2e8f0';
+        header.style.fontSize = '14px';
+        header.style.fontWeight = '600';
+
+        const title = document.createElement('div');
+        title.textContent = 'Print / Save PDF';
+
+        const actions = document.createElement('div');
+        actions.style.display = 'flex';
+        actions.style.gap = '8px';
+
+        const printButton = document.createElement('button');
+        printButton.type = 'button';
+        printButton.textContent = 'Open Print Dialog';
+        printButton.style.background = '#2563eb';
+        printButton.style.border = 'none';
+        printButton.style.color = '#fff';
+        printButton.style.padding = '8px 12px';
+        printButton.style.borderRadius = '8px';
+        printButton.style.cursor = 'pointer';
+        printButton.style.fontSize = '12px';
+        printButton.style.fontWeight = '600';
+
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.textContent = 'Close';
+        closeButton.style.background = 'transparent';
+        closeButton.style.border = '1px solid rgba(148, 163, 184, 0.4)';
+        closeButton.style.color = '#e2e8f0';
+        closeButton.style.padding = '8px 12px';
+        closeButton.style.borderRadius = '8px';
+        closeButton.style.cursor = 'pointer';
+        closeButton.style.fontSize = '12px';
+        closeButton.style.fontWeight = '600';
+
+        actions.appendChild(printButton);
+        actions.appendChild(closeButton);
+        header.appendChild(title);
+        header.appendChild(actions);
+
+        const hint = document.createElement('div');
+        hint.textContent = 'Use the print dialog to Save as PDF. This preview will stay open.';
+        hint.style.padding = '10px 18px';
+        hint.style.fontSize = '12px';
+        hint.style.color = '#94a3b8';
+        hint.style.borderBottom = '1px solid rgba(148, 163, 184, 0.2)';
+
+        const body = document.createElement('div');
+        body.style.flex = '1';
+        body.style.background = '#0f172a';
+        body.style.padding = '16px';
+
+        const iframe = document.createElement('iframe');
+        iframe.title = 'Case file print preview';
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+        iframe.style.border = 'none';
+        iframe.style.borderRadius = '10px';
+        iframe.style.background = '#fff';
+
+        body.appendChild(iframe);
+        modal.appendChild(header);
+        modal.appendChild(hint);
+        modal.appendChild(body);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const handleKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') cleanup();
+        };
+
+        const cleanup = () => {
+            window.removeEventListener('keydown', handleKey);
+            overlay.remove();
+        };
+
+        window.addEventListener('keydown', handleKey);
+
+        closeButton.onclick = cleanup;
+        printButton.onclick = () => {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+        };
+
+        const doc = iframe.contentWindow?.document;
+        if (!doc) {
+            cleanup();
+            return;
+        }
+
         doc.open();
         doc.write(content);
         doc.close();
-
-        // Use a timeout to ensure styles load and browser is ready
-        setTimeout(() => {
-            iframe.contentWindow?.focus();
-            iframe.contentWindow?.print();
-            
-            // Cleanup iframe after a delay to allow print dialog to handle the content
-            setTimeout(() => {
-                document.body.removeChild(iframe);
-            }, 1000);
-        }, 200);
     }
 };

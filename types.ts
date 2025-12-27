@@ -63,6 +63,7 @@ export interface AnalysisResponse {
     greyRock: string;
   };
   expertInsights?: string; // For Premium Demo: Explains the strategy/psychology used
+  modelSlug?: string;
 }
 
 export interface Round {
@@ -100,6 +101,9 @@ export interface Round {
   
   // Demo Extras
   expertInsights?: string;
+
+  // AI Metadata
+  modelSlug?: string;
 }
 
 export interface ResponseTemplate {

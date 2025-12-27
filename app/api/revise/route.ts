@@ -1,23 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callOpenRouterChat, resolveModelSlug } from "@/lib/server/openrouter";
+import {
+  callOpenRouterChat,
+  isOpenRouterError,
+  resolveModelSlug,
+  toOpenRouterErrorPayload,
+} from "@/lib/server/openrouter";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   if (!process.env.OPENROUTER_API_KEY) {
-    return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+    return NextResponse.json(
+      { error: { message: "Missing OPENROUTER_API_KEY", upstreamStatus: 500 } },
+      { status: 500 }
+    );
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+    return NextResponse.json(
+      { error: { message: "Invalid JSON payload", upstreamStatus: 400 } },
+      { status: 400 }
+    );
   }
 
   const { originalText, instruction, planType } = body || {};
   if (!originalText || !instruction) {
-    return NextResponse.json({ error: "Missing originalText or instruction" }, { status: 400 });
+    return NextResponse.json(
+      { error: { message: "Missing originalText or instruction", upstreamStatus: 400 } },
+      { status: 400 }
+    );
   }
 
   const prompt = `
@@ -47,7 +61,14 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ text: text.trim() });
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to revise text" }, { status: 500 });
+  } catch (error: any) {
+    if (isOpenRouterError(error)) {
+      return NextResponse.json(
+        { error: toOpenRouterErrorPayload(error) },
+        { status: error.upstreamStatus || 502 }
+      );
+    }
+    const message = error?.message || "Failed to revise text";
+    return NextResponse.json({ error: { message, upstreamStatus: 500 } }, { status: 500 });
   }
 }

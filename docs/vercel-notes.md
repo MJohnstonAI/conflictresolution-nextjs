@@ -10,15 +10,21 @@
   - Supabase anon public key for client usage.
 - OPENROUTER_API_KEY
   - OpenRouter API key (server-side only).
+- OPENROUTER_REFERER
+  - HTTP-Referer used for OpenRouter attribution (use https://localhost:3000 in dev).
+- OPENROUTER_TITLE
+  - App title used for OpenRouter attribution.
 - SUPABASE_SERVICE_ROLE_KEY
   - Supabase service role key (server-side only).
 
 ## Recommended Vercel Env Setup
 - Development
-  - NEXT_PUBLIC_SITE_URL = http://localhost:3000
+  - NEXT_PUBLIC_SITE_URL = https://localhost:3000
   - NEXT_PUBLIC_SUPABASE_URL = <your supabase url>
   - NEXT_PUBLIC_SUPABASE_ANON_KEY = <your supabase anon key>
   - OPENROUTER_API_KEY = <your openrouter api key>
+  - OPENROUTER_REFERER = https://localhost:3000
+  - OPENROUTER_TITLE = conflictresolution-nextjs
   - SUPABASE_SERVICE_ROLE_KEY = <your supabase service role key>
 - Preview
   - NEXT_PUBLIC_SITE_URL = https://<your-preview-domain>

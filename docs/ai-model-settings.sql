@@ -9,7 +9,7 @@ create table if not exists public.ai_models (
 -- Seed defaults (use stable IDs for referential integrity)
 insert into public.ai_models (id, plan_type, model_slug)
 values
-  (1, 'standard', 'anthropic/claude-3-haiku'),
+  (1, 'standard', 'anthropic/claude-haiku-4.5'),
   (2, 'premium', 'anthropic/claude-sonnet-4.5')
 on conflict (id) do update
 set plan_type = excluded.plan_type,

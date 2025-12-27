@@ -350,6 +350,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const [senderName, setSenderName] = useState("");
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisError, setAnalysisError] = useState<string | null>(null);
+    const analyzeInFlight = useRef(false);
 
     // Initial Load
     useEffect(() => {
@@ -395,11 +396,17 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     // Handle Analysis
     const handleAnalyze = async () => {
         if (!activeCase || !inputText.trim()) return;
+        if (analyzeInFlight.current) return;
+        analyzeInFlight.current = true;
         setIsAnalyzing(true);
         setAnalysisError(null);
 
         try {
-            if (activeCase.roundsUsed >= activeCase.roundsLimit && !activeCase.isClosed) {
+            const roundsLimit =
+                activeCase.roundsLimit || (activeCase.planType === "premium" ? 40 : 10);
+            const roundsUsedCount = Math.max(activeCase.roundsUsed, rounds.length);
+
+            if (roundsUsedCount >= roundsLimit && !activeCase.isClosed) {
                 const closedCase = { ...activeCase, isClosed: true };
                 await store.saveCase(closedCase);
                 setActiveCase(closedCase);
@@ -441,7 +448,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             };
 
             await store.saveRound(newRound);
-            const updatedCase = { ...activeCase, roundsUsed: activeCase.roundsUsed + 1 };
+            const updatedCase = { ...activeCase, roundsUsed: roundsUsedCount + 1, roundsLimit };
             await store.saveCase(updatedCase);
             
             const updatedRounds = [...rounds, newRound];
@@ -453,11 +460,14 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             setViewIndex(updatedRounds.length - 1); 
             toast("Analysis complete.", "success");
 
-        } catch (e: any) {
+        } catch (e: unknown) {
             console.error(e);
-            setAnalysisError(e.message || "Analysis failed.");
+            const message =
+                e instanceof Error ? e.message : typeof e === "string" ? e : "Analysis failed.";
+            setAnalysisError(message);
         } finally {
             setIsAnalyzing(false);
+            analyzeInFlight.current = false;
         }
     };
 
@@ -496,10 +506,19 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const currentRound = !isInputMode ? rounds[viewIndex] : null;
 
     // Stats for Progress Bar
-    const roundsUsedCount = rounds.length;
-    const remainingCount = Math.max(0, activeCase.roundsLimit - roundsUsedCount);
-    const progressPercentage = (roundsUsedCount / activeCase.roundsLimit) * 100;
+    const roundsLimit = activeCase.roundsLimit || (activeCase.planType === "premium" ? 40 : 10);
+    const roundsUsedCount = Math.max(rounds.length, activeCase.roundsUsed);
+    const remainingCount = Math.max(0, roundsLimit - roundsUsedCount);
+    const progressPercentage = (roundsUsedCount / roundsLimit) * 100;
     const displayRound = isInputMode ? rounds.length : (viewIndex + 1);
+    const activeModelSlug =
+        currentRound?.modelSlug ||
+        [...rounds].reverse().find((round) => round.modelSlug)?.modelSlug ||
+        (activeCase.planType === "premium"
+            ? "anthropic/claude-sonnet-4.5"
+            : activeCase.planType === "standard"
+              ? "anthropic/claude-haiku-4.5"
+              : "demo-script");
 
     return (
         <div className="w-full h-full">
@@ -514,6 +533,9 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                             <div className="flex items-center gap-3">
                                 <h1 className="text-xl font-serif font-bold text-slate-100 max-w-[200px] md:max-w-md truncate">{activeCase.title}</h1>
                                 {activeCase.planType === 'premium' && <Badge color="amber">Premium</Badge>}
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-mono mt-1 truncate">
+                                Model: <span className="text-slate-400">{activeModelSlug}</span>
                             </div>
                         </div>
                     </div>

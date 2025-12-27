@@ -6,6 +6,16 @@
 3. Run the app:
    `npm run dev`
 
+## OpenRouter Environment
+
+Required server-only variables (restart the dev server after changes):
+
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_REFERER` (recommended: `https://localhost:3000`)
+- `OPENROUTER_TITLE` (recommended)
+
+Dev tip: choose a `:free` model slug in `ai_models` when testing to avoid credit issues.
+
 ## Common Scripts
 
 - `npm run dev` - start the local dev server

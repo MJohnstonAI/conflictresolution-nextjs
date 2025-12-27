@@ -2,6 +2,7 @@
 import { AnalysisResponse, Mode, OpponentType, UserGoal, PlanType, Round, Case } from "../types";
 import { DEMO_SCENARIOS } from "./demo_scenarios";
 import { supabase } from "./supabase";
+import { formatApiErrorMessage, readApiErrorDetails } from "@/lib/client/api-errors";
 
 interface AnalysisParams {
   opponentType: OpponentType;
@@ -55,17 +56,15 @@ export const analyzeConflict = async (params: AnalysisParams): Promise<AnalysisR
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      const base = error?.error || "Analysis failed.";
-      const details = error?.details ? `: ${error.details}` : "";
-      throw new Error(`${base}${details}`);
+      const details = await readApiErrorDetails(response);
+      throw new Error(formatApiErrorMessage(details, response.status));
     }
 
     return (await response.json()) as AnalysisResponse;
   } catch (error) {
     console.error("AI Analysis Failed:", error);
     if (error instanceof Error) {
-      throw new Error(`AI Analysis Failed: ${error.message}`);
+      throw error;
     }
     throw new Error("Unable to connect to analysis service.");
   }
@@ -85,13 +84,17 @@ export const reviseResponse = async (
     });
 
     if (!response.ok) {
-      throw new Error("Failed to revise text");
+      const details = await readApiErrorDetails(response);
+      throw new Error(formatApiErrorMessage(details, response.status));
     }
 
     const data = await response.json();
     return data?.text || originalText;
   } catch (e) {
     console.error("Revision failed", e);
+    if (e instanceof Error) {
+      throw e;
+    }
     throw new Error("Failed to revise text");
   }
 };
@@ -110,7 +113,8 @@ export const summarizeCase = async (rounds: Round[], caseInfo: Case): Promise<st
     });
 
     if (!response.ok) {
-      return "Summary unavailable.";
+      const details = await readApiErrorDetails(response);
+      return `Summary unavailable. ${formatApiErrorMessage(details, response.status)}`;
     }
 
     const data = await response.json();
