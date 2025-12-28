@@ -65,11 +65,12 @@ export const requireCaseAccess = async ({
   if (requireOpen) {
     const roundsLimit = Number(data.rounds_limit);
     const roundsUsed = Number(data.rounds_used);
-    if (data.is_closed || (Number.isFinite(roundsLimit) && Number.isFinite(roundsUsed) && roundsUsed >= roundsLimit)) {
+    const limitApplies = Number.isFinite(roundsLimit) && roundsLimit > 0;
+    const usedApplies = Number.isFinite(roundsUsed) && roundsUsed >= 0;
+    if (data.is_closed || (limitApplies && usedApplies && roundsUsed >= roundsLimit)) {
       return { ok: false, error: errorResponse("Case limit reached", 403) };
     }
   }
 
   return { ok: true, caseRow: data };
 };
-

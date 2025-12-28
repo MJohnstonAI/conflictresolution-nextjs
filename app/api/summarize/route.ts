@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   }
 
   const authGuard = await requireAiAuth(request);
-  if (!authGuard.ok) return authGuard.error;
+  if (authGuard.ok === false) return authGuard.error;
 
   let body: any;
   try {
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       planType: caseInfo?.planType,
       requireOpen: false,
     });
-    if (!caseGuard.ok) return caseGuard.error;
+    if (caseGuard.ok === false) return caseGuard.error;
 
     const modelSlug = await resolveModelSlug(caseInfo?.planType, authGuard.token);
 

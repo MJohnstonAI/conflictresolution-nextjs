@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   }
 
   const authGuard = await requireAiAuth(request);
-  if (!authGuard.ok) return authGuard.error;
+  if (authGuard.ok === false) return authGuard.error;
 
   const ip = getClientIp(request);
   const limit = rateLimit(`message-summarize:${ip}`, 2, 60_000);

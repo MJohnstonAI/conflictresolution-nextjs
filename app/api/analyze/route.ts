@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   }
 
   const authGuard = await requireAiAuth(request);
-  if (!authGuard.ok) return authGuard.error;
+  if (authGuard.ok === false) return authGuard.error;
 
   const ip = getClientIp(request);
   const limit = rateLimit(`analyze:${ip}`, 8, 60_000);
@@ -139,7 +139,7 @@ Analyze the input and generate 4 strategic response drafts.
       planType,
       requireOpen: true,
     });
-    if (!caseGuard.ok) return caseGuard.error;
+    if (caseGuard.ok === false) return caseGuard.error;
 
     const modelSlug = await resolveModelSlug(planType, authGuard.token);
 
