@@ -100,11 +100,10 @@ const FALLBACK_STORIES: SuccessStory[] = [
 
 const mapCaseFromDB = (row: any): Case => {
   const planType = row.plan_type;
-  const fallbackLimit = planType === "premium" ? 40 : planType === "standard" ? 10 : 3;
   const roundsLimitRaw = Number(row.rounds_limit);
   const roundsUsedRaw = Number(row.rounds_used);
   const roundsLimit =
-    Number.isFinite(roundsLimitRaw) && roundsLimitRaw > 0 ? roundsLimitRaw : fallbackLimit;
+    Number.isFinite(roundsLimitRaw) && roundsLimitRaw > 0 ? roundsLimitRaw : 0;
   const roundsUsed = Number.isFinite(roundsUsedRaw) && roundsUsedRaw >= 0 ? roundsUsedRaw : 0;
 
   return {
@@ -174,8 +173,10 @@ const mapStoryFromDB = (row: any): SuccessStory => ({
 const LS_KEYS = {
   CASES: 'cr_local_cases',
   ROUNDS: 'cr_local_rounds',
-  PREMIUM_CREDITS: 'cr_local_premium_credits',
-  STANDARD_CREDITS: 'cr_local_standard_credits'
+  PREMIUM_SESSIONS: 'cr_local_premium_sessions',
+  STANDARD_SESSIONS: 'cr_local_standard_sessions',
+  LEGACY_PREMIUM_CREDITS: 'cr_local_premium_credits',
+  LEGACY_STANDARD_CREDITS: 'cr_local_standard_credits'
 };
 
 const getLocal = <T>(key: string): T[] => {
@@ -188,8 +189,28 @@ const setLocal = (key: string, data: any[]) => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
+const getLocalSessionBalance = () => {
+  const premium = parseInt(localStorage.getItem(LS_KEYS.PREMIUM_SESSIONS) || '0');
+  const standard = parseInt(localStorage.getItem(LS_KEYS.STANDARD_SESSIONS) || '0');
+  if (premium > 0 || standard > 0) {
+    return { premium, standard };
+  }
+
+  const legacyPremiumCredits = parseInt(localStorage.getItem(LS_KEYS.LEGACY_PREMIUM_CREDITS) || '0');
+  const legacyStandardCredits = parseInt(localStorage.getItem(LS_KEYS.LEGACY_STANDARD_CREDITS) || '0');
+  const migratedPremium = legacyPremiumCredits * 40;
+  const migratedStandard = legacyStandardCredits * 10;
+
+  if (migratedPremium > 0 || migratedStandard > 0) {
+    localStorage.setItem(LS_KEYS.PREMIUM_SESSIONS, migratedPremium.toString());
+    localStorage.setItem(LS_KEYS.STANDARD_SESSIONS, migratedStandard.toString());
+  }
+
+  return { premium: migratedPremium, standard: migratedStandard };
+};
+
 export const store = {
-  // --- ACCOUNT & CREDITS ---
+  // --- ACCOUNT & SESSIONS ---
   
   getAccount: async (): Promise<UserAccount> => {
     try {
@@ -197,12 +218,11 @@ export const store = {
         
         // DEMO / GUEST USER
         if (!user) {
-            const premCredits = parseInt(localStorage.getItem(LS_KEYS.PREMIUM_CREDITS) || '0');
-            const stdCredits = parseInt(localStorage.getItem(LS_KEYS.STANDARD_CREDITS) || '0');
+            const sessions = getLocalSessionBalance();
             const localCases = getLocal(LS_KEYS.CASES).length;
             return { 
-              premiumCredits: premCredits, 
-              standardCredits: stdCredits,
+              premiumSessions: sessions.premium, 
+              standardSessions: sessions.standard,
               totalCasesCreated: localCases, 
               isAdmin: false,
               role: 'demo' 
@@ -228,6 +248,8 @@ export const store = {
                   name: user.user_metadata?.full_name || '',
                   premium_credits: 0, 
                   standard_credits: 0,
+                  premium_sessions: 0,
+                  standard_sessions: 0,
                   is_admin: false,
                   is_trial: false,
                   theme: 'dark'
@@ -250,8 +272,14 @@ export const store = {
             .select('*', { count: 'exact', head: true })
             .eq('user_id', user.id);
 
-        const premiumCredits = data?.premium_credits || 0;
-        const standardCredits = data?.standard_credits || 0;
+        const premiumSessions =
+          typeof data?.premium_sessions === 'number'
+            ? data.premium_sessions
+            : (data?.premium_credits || 0) * 40;
+        const standardSessions =
+          typeof data?.standard_sessions === 'number'
+            ? data.standard_sessions
+            : (data?.standard_credits || 0) * 10;
         
         // HARDCODED ADMIN CHECK
         const isHardcodedAdmin = user.email === 'marcaj777@gmail.com';
@@ -263,14 +291,14 @@ export const store = {
           role = 'admin';
         } else if (isTrial) {
           role = 'trial';
-        } else if (premiumCredits > 0 || standardCredits > 0) {
+        } else if (premiumSessions > 0 || standardSessions > 0) {
           role = 'paid';
         }
 
         return {
           name: data?.name || user.user_metadata?.full_name || '',
-          premiumCredits,
-          standardCredits,
+          premiumSessions,
+          standardSessions,
           isAdmin,
           role,
           totalCasesCreated: count || 0,
@@ -278,12 +306,11 @@ export const store = {
         };
     } catch (e) {
         console.warn("Auth sync interrupted, falling back to local guest state.");
-        const premCredits = parseInt(localStorage.getItem(LS_KEYS.PREMIUM_CREDITS) || '0');
-        const stdCredits = parseInt(localStorage.getItem(LS_KEYS.STANDARD_CREDITS) || '0');
+        const sessions = getLocalSessionBalance();
         const localCases = getLocal(LS_KEYS.CASES).length;
         return { 
-          premiumCredits: premCredits, 
-          standardCredits: stdCredits,
+          premiumSessions: sessions.premium, 
+          standardSessions: sessions.standard,
           totalCasesCreated: localCases, 
           isAdmin: false,
           role: 'demo' 
@@ -305,11 +332,11 @@ export const store = {
     }
   },
 
-  addCredits: async (type: 'standard' | 'premium', amount: number): Promise<void> => {
+  addSessions: async (type: 'standard' | 'premium', amount: number): Promise<void> => {
     try {
         const { data: { user } } = await supabase.auth.getUser();
-        const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_CREDITS : LS_KEYS.STANDARD_CREDITS;
-        const dbCol = type === 'premium' ? 'premium_credits' : 'standard_credits';
+        const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_SESSIONS : LS_KEYS.STANDARD_SESSIONS;
+        const dbCol = type === 'premium' ? 'premium_sessions' : 'standard_sessions';
 
         if (!user) {
             const current = parseInt(localStorage.getItem(lsKey) || '0');
@@ -325,59 +352,22 @@ export const store = {
           .update({ [dbCol]: current + amount })
           .eq('id', user.id);
     } catch (e) {
-        const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_CREDITS : LS_KEYS.STANDARD_CREDITS;
+        const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_SESSIONS : LS_KEYS.STANDARD_SESSIONS;
         const current = parseInt(localStorage.getItem(lsKey) || '0');
         localStorage.setItem(lsKey, (current + amount).toString());
-    }
-  },
-
-  deductCredit: async (type: 'standard' | 'premium'): Promise<boolean> => {
-    try {
-        const account = await store.getAccount();
-        if (account.isAdmin) return true; 
-
-        const { data: { user } } = await supabase.auth.getUser();
-        const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_CREDITS : LS_KEYS.STANDARD_CREDITS;
-        const dbCol = type === 'premium' ? 'premium_credits' : 'standard_credits';
-
-        if (!user) {
-            const current = parseInt(localStorage.getItem(lsKey) || '0');
-            if (current > 0) {
-                localStorage.setItem(lsKey, (current - 1).toString());
-                return true;
-            }
-            return false;
-        }
-
-        const { data } = await supabase.from('profiles').select(dbCol).eq('id', user.id).single();
-        const current = data?.[dbCol] || 0;
-
-        if (current > 0) {
-          const { error } = await supabase
-            .from('profiles')
-            .update({ [dbCol]: current - 1 })
-            .eq('id', user.id);
-          return !error;
-        }
-        return false;
-    } catch (e) {
-         const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_CREDITS : LS_KEYS.STANDARD_CREDITS;
-         const current = parseInt(localStorage.getItem(lsKey) || '0');
-         if (current > 0) {
-             localStorage.setItem(lsKey, (current - 1).toString());
-             return true;
-         }
-         return false;
     }
   },
   
   // --- CASES ---
   
   getCases: async (): Promise<Case[]> => {
+    let isGuest = false;
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
         
         if (!user) {
+            isGuest = true;
             const cases = getLocal<Case>(LS_KEYS.CASES);
             return cases.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         }
@@ -390,16 +380,22 @@ export const store = {
         if (error) throw error;
         return (data || []).map(mapCaseFromDB);
     } catch (error) {
-        console.warn("Network unreachable, fetching local storage cases.");
-        return getLocal<Case>(LS_KEYS.CASES).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        if (isGuest) {
+            console.warn("Network unreachable, fetching local storage cases.");
+            return getLocal<Case>(LS_KEYS.CASES).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        }
+        throw error;
     }
   },
 
   getCase: async (id: string): Promise<Case | undefined> => {
+    let isGuest = false;
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
         
         if (!user) {
+            isGuest = true;
             const localCases = getLocal<Case>(LS_KEYS.CASES);
             return localCases.find(c => c.id === id);
         }
@@ -413,8 +409,11 @@ export const store = {
         if (error || !data) return undefined;
         return mapCaseFromDB(data);
     } catch (e) {
-        const localCases = getLocal<Case>(LS_KEYS.CASES);
-        return localCases.find(c => c.id === id);
+        if (isGuest) {
+            const localCases = getLocal<Case>(LS_KEYS.CASES);
+            return localCases.find(c => c.id === id);
+        }
+        throw e;
     }
   },
 
@@ -478,10 +477,13 @@ export const store = {
   // --- ROUNDS ---
   
   getRounds: async (caseId: string): Promise<Round[]> => {
+    let isGuest = false;
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
         
         if (!user) {
+            isGuest = true;
             const rounds = getLocal<Round>(LS_KEYS.ROUNDS);
             return rounds.filter(r => r.caseId === caseId).sort((a, b) => a.roundNumber - b.roundNumber);
         }
@@ -495,8 +497,11 @@ export const store = {
         if (error) throw error;
         return (data || []).map(mapRoundFromDB);
     } catch (e) {
-        const rounds = getLocal<Round>(LS_KEYS.ROUNDS);
-        return rounds.filter(r => r.caseId === caseId).sort((a, b) => a.roundNumber - b.roundNumber);
+        if (isGuest) {
+            const rounds = getLocal<Round>(LS_KEYS.ROUNDS);
+            return rounds.filter(r => r.caseId === caseId).sort((a, b) => a.roundNumber - b.roundNumber);
+        }
+        throw e;
     }
   },
 

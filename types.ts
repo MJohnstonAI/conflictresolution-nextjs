@@ -16,8 +16,8 @@ export interface UserAccount {
   name?: string;
   
   // Wallet
-  standardCredits: number; // For Standard Cases (10 rounds)
-  premiumCredits: number;  // For Premium Cases (40 rounds + Expert)
+  standardSessions: number; // Standard session balance
+  premiumSessions: number;  // Premium session balance
   
   // Permissions
   isAdmin: boolean; // Bypasses all limits
@@ -39,7 +39,7 @@ export interface Case {
   
   // Monetization State
   planType: PlanType;
-  roundsLimit: number;    // 10 (Standard), 40 (Premium)
+  roundsLimit: number;    // 0 for unlimited; demo uses scripted length
   roundsUsed: number;     
   
   isClosed: boolean;      // If true, no more AI calls allowed
