@@ -18,9 +18,32 @@ import { getModeTooltipText } from '../lib/mode-help';
 
 const MAX_OPPONENT_MESSAGE_CHARS = 15000;
 const WARN_OPPONENT_MESSAGE_CHARS = 13500;
+const TACTICS_PREVIEW_COUNT = 6;
 
 const getResponseKey = (mode: Mode) =>
     mode === 'Peacekeeper' ? 'soft' : mode === 'Barrister' ? 'firm' : mode === 'Grey Rock' ? 'greyRock' : 'nuclear';
+
+const logEvent = (name: string, payload: Record<string, unknown> = {}) => {
+    if (typeof window === "undefined") return;
+    const entry = { name, payload, ts: Date.now() };
+    const anyWindow = window as any;
+    if (!anyWindow.__crEvents) anyWindow.__crEvents = [];
+    anyWindow.__crEvents.push(entry);
+    if (process.env.NODE_ENV !== "production") {
+        console.info("[telemetry]", entry);
+    }
+};
+
+const scheduleIdle = (callback: () => void) => {
+    if (typeof window === "undefined") return () => {};
+    const anyWindow = window as any;
+    if (typeof anyWindow.requestIdleCallback === "function") {
+        const id = anyWindow.requestIdleCallback(callback);
+        return () => anyWindow.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(callback, 200);
+    return () => window.clearTimeout(id);
+};
 
 // --- SUB-COMPONENTS ---
 
@@ -459,6 +482,7 @@ const SingleRoundView: React.FC<{
     isDemo?: boolean;
     demoHasNext?: boolean;
     canRefine?: boolean;
+    analysisReady?: boolean;
 }> = ({
     round,
     onModeSelect,
@@ -469,16 +493,25 @@ const SingleRoundView: React.FC<{
     userName,
     isDemo = false,
     demoHasNext = true,
-    canRefine = true
+    canRefine = true,
+    analysisReady = false
 }) => {
 
     const [showRawText, setShowRawText] = useState(isDemo);
+    const [showAllTactics, setShowAllTactics] = useState(false);
     const [refineInstruction, setRefineInstruction] = useState("");
     const [isRefining, setIsRefining] = useState(false);
     const [refineError, setRefineError] = useState<string | null>(null);
 
     // Helper to get current response text
     const currentResponse = round.responses[getResponseKey(round.selectedMode)] || "";
+    const tactics = round.detectedFallacies || [];
+    const hasMoreTactics = tactics.length > TACTICS_PREVIEW_COUNT;
+    const visibleTactics = showAllTactics ? tactics : tactics.slice(0, TACTICS_PREVIEW_COUNT);
+
+    useEffect(() => {
+        setShowAllTactics(false);
+    }, [round.id]);
 
     const handleRefine = async () => {
         const instruction = refineInstruction.trim();
@@ -494,6 +527,31 @@ const SingleRoundView: React.FC<{
         } finally {
             setIsRefining(false);
         }
+    };
+
+    const handleCopyResponse = async () => {
+        try {
+            await navigator.clipboard.writeText(currentResponse);
+            toast("Response copied to clipboard", "success");
+            logEvent("draft_copied", {
+                caseId: round.caseId,
+                roundId: round.id,
+                mode: round.selectedMode
+            });
+        } catch (error) {
+            console.error("Copy failed:", error);
+            toast("Copy failed. Please try again.", "error");
+        }
+    };
+
+    const handleNextRound = () => {
+        logEvent("next_round_clicked", {
+            caseId: round.caseId,
+            roundId: round.id,
+            isLatest,
+            isDemo
+        });
+        onNextRound();
     };
 
     return (
@@ -546,32 +604,78 @@ const SingleRoundView: React.FC<{
                             <span className="text-xs font-bold text-gold-500 uppercase tracking-widest">Tactical Analysis</span>
                         </div>
                         <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
-                            {/* Vibe */}
-                            <div className="bg-navy-950/30 p-4 rounded-lg border border-navy-800/50">
-                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-2">Psychological Vibe</span>
-                                <p className="text-sm text-slate-200 font-medium">"{round.vibeCheck}"</p>
-                            </div>
-
-                            {/* Tactics */}
-                            <div>
-                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-2">Detected Tactics</span>
-                                <div className="flex flex-wrap gap-2">
-                                    {round.detectedFallacies?.length ? round.detectedFallacies.map(f => (
-                                        <span key={f} className="px-2.5 py-1 bg-rose-900/20 text-rose-300 border border-rose-500/20 rounded text-[10px] font-bold uppercase">{f}</span>
-                                    )) : <span className="text-xs text-slate-600 italic">No overt manipulation detected.</span>}
-                                </div>
-                            </div>
-
-                            <RiskGauge score={round.legalRiskScore || 0} />
-
-                             {/* Expert Note */}
-                            {round.expertInsights && (
-                                <div className="bg-gold-500/5 border border-gold-500/10 p-4 rounded-lg flex gap-3">
-                                    <Info className="w-4 h-4 text-gold-500 shrink-0 mt-0.5" />
-                                    <div>
-                                        <p className="text-[10px] font-bold text-gold-500 uppercase mb-1">Expert Strategy</p>
-                                        <p className="text-xs text-slate-300 italic leading-relaxed">{round.expertInsights}</p>
+                            {analysisReady ? (
+                                <>
+                                    {/* Vibe */}
+                                    <div className="bg-navy-950/30 p-4 rounded-lg border border-navy-800/50">
+                                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-2">Psychological Vibe</span>
+                                        <p className="text-sm text-slate-200 font-medium">"{round.vibeCheck}"</p>
                                     </div>
+
+                                    {/* Tactics */}
+                                    <div>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-2">Detected Tactics</span>
+                                            {hasMoreTactics && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowAllTactics((prev) => !prev)}
+                                                    className="text-[10px] font-bold text-blue-400 hover:text-blue-300 uppercase tracking-widest"
+                                                >
+                                                    {showAllTactics ? "Show Less" : `Show All (${tactics.length})`}
+                                                </button>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            {tactics.length ? (
+                                                visibleTactics.map((tactic) => (
+                                                    <span
+                                                        key={tactic}
+                                                        className="px-2.5 py-1 bg-rose-900/20 text-rose-300 border border-rose-500/20 rounded text-[10px] font-bold uppercase"
+                                                    >
+                                                        {tactic}
+                                                    </span>
+                                                ))
+                                            ) : (
+                                                <span className="text-xs text-slate-600 italic">No overt manipulation detected.</span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <RiskGauge score={round.legalRiskScore || 0} />
+
+                                    {/* Expert Note */}
+                                    {round.expertInsights && (
+                                        <div className="bg-gold-500/5 border border-gold-500/10 p-4 rounded-lg flex gap-3">
+                                            <Info className="w-4 h-4 text-gold-500 shrink-0 mt-0.5" />
+                                            <div>
+                                                <p className="text-[10px] font-bold text-gold-500 uppercase mb-1">Expert Strategy</p>
+                                                <p className="text-xs text-slate-300 italic leading-relaxed">{round.expertInsights}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="space-y-6 animate-pulse">
+                                    <div className="bg-navy-950/30 p-4 rounded-lg border border-navy-800/50 space-y-3">
+                                        <div className="h-3 w-32 bg-navy-800 rounded"></div>
+                                        <div className="h-4 w-5/6 bg-navy-800/80 rounded"></div>
+                                        <div className="h-4 w-3/4 bg-navy-800/70 rounded"></div>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <div className="h-3 w-28 bg-navy-800 rounded"></div>
+                                        <div className="flex flex-wrap gap-2">
+                                            {Array.from({ length: 4 }).map((_, index) => (
+                                                <span
+                                                    key={index}
+                                                    className="px-2.5 py-1 bg-navy-800/70 border border-navy-800 rounded text-[10px]"
+                                                >
+                                                    &nbsp;
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="h-24 bg-navy-950/30 border border-navy-800/50 rounded-lg"></div>
                                 </div>
                             )}
                         </div>
@@ -587,7 +691,7 @@ const SingleRoundView: React.FC<{
                             <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">Strategic Response</span>
                         </div>
                         <button 
-                            onClick={() => { navigator.clipboard.writeText(currentResponse); toast("Response copied to clipboard", "success"); }}
+                            onClick={handleCopyResponse}
                             className="text-[10px] font-bold text-slate-500 hover:text-white flex items-center gap-1 uppercase tracking-wider"
                         >
                             <Copy className="w-3 h-3"/> Copy Text
@@ -669,7 +773,7 @@ const SingleRoundView: React.FC<{
                         <Button 
                             fullWidth 
                             size="lg" 
-                            onClick={onNextRound}
+                            onClick={handleNextRound}
                             disabled={isLatest && isDemo && !demoHasNext}
                             className="flex justify-between items-center group bg-blue-600 hover:bg-blue-500 text-white border-blue-500 shadow-blue-500/20 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                         >
@@ -708,6 +812,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const [syncError, setSyncError] = useState<string | null>(null);
     const [allCases, setAllCases] = useState<Case[]>([]);
     const [account, setAccount] = useState<UserAccount | null>(null);
+    const [analysisReadyMap, setAnalysisReadyMap] = useState<Record<string, boolean>>({});
     
     // View State
     const [viewIndex, setViewIndex] = useState<number>(0); // 0 = Round 1, rounds.length = New Input
@@ -786,10 +891,67 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     }, [loadCaseFile]);
 
     useEffect(() => {
+        if (typeof window === "undefined") return;
+        let reported = false;
+        let observer: PerformanceObserver | null = null;
+        try {
+            observer = new PerformanceObserver((entryList) => {
+                if (reported) return;
+                const entries = entryList.getEntries();
+                const lastEntry = entries[entries.length - 1];
+                if (!lastEntry) return;
+                reported = true;
+                logEvent("web_vitals", {
+                    metric: "LCP",
+                    value: Math.round(lastEntry.startTime),
+                    path: window.location.pathname
+                });
+            });
+            observer.observe({ type: "largest-contentful-paint", buffered: true });
+        } catch (error) {
+            console.warn("LCP observer unavailable:", error);
+        }
+        return () => observer?.disconnect();
+    }, []);
+
+    useEffect(() => {
+        setAnalysisReadyMap({});
+    }, [activeCase?.id]);
+
+    useEffect(() => {
         if (!isDemo || !demoScenario) return;
         const nextRound = demoScenario.rounds[rounds.length];
         setInputText(nextRound ? nextRound.opponentText : "");
     }, [isDemo, demoScenario, rounds.length]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const currentRound = rounds[viewIndex];
+        if (!currentRound) return;
+
+        let cancelled = false;
+        const rafId = window.requestAnimationFrame(() => {
+            if (cancelled) return;
+            setAnalysisReadyMap((prev) =>
+                prev[currentRound.id] ? prev : { ...prev, [currentRound.id]: true }
+            );
+        });
+
+        const cancelIdle = scheduleIdle(() => {
+            if (cancelled) return;
+            const nextRound = rounds[viewIndex + 1];
+            if (!nextRound) return;
+            setAnalysisReadyMap((prev) =>
+                prev[nextRound.id] ? prev : { ...prev, [nextRound.id]: true }
+            );
+        });
+
+        return () => {
+            cancelled = true;
+            window.cancelAnimationFrame(rafId);
+            cancelIdle();
+        };
+    }, [rounds, viewIndex]);
 
     useEffect(() => {
         if (viewIndex !== rounds.length && rerunRoundId) {
@@ -1366,6 +1528,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                 isDemo={isDemo}
                                 demoHasNext={demoHasNext}
                                 canRefine={!isDemo && !activeCase.isClosed}
+                                analysisReady={!!analysisReadyMap[currentRound.id]}
                             />
                         )
                     )}

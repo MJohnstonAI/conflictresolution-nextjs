@@ -18,6 +18,7 @@
 - Add `/api/models` TTL caching to reduce upstream fetch churn.
 - Add Refine Response UI that calls `/api/revise` and updates selected draft.
 - Add post-demo conversion CTA when demo completes.
+- Stage War Room rendering with deferred Tactical Analysis, skeleton placeholders, tactics cap, and interaction telemetry.
 
 ## Next
 - Add a small "Refine Response" flow in War Room using `/api/revise` (optional).
@@ -26,4 +27,10 @@
 ## Ideas
 - Track per-round token usage/cost estimates (admin-only).
 - Streaming AI responses for improved perceived latency.
+
+## How to Test
+- Open an existing case in War Room and confirm the Strategic Response card renders immediately.
+- Verify Tactical Analysis shows skeletons briefly, then fills in without interaction.
+- Click "Copy Text" and "Next Round" to confirm events log in the console (`__crEvents`).
+- In Demo mode, ensure no AI calls are made and playback still works.
 ---
