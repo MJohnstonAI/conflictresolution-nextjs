@@ -36,6 +36,7 @@ language plpgsql
 as $$
 declare
   updated_remaining integer;
+  safe_round_id uuid;
 begin
   if p_plan_type not in ('standard', 'premium') then
     return query select false, null;
@@ -64,8 +65,16 @@ begin
     return;
   end if;
 
+  safe_round_id := p_round_id;
+  if safe_round_id is not null then
+    perform 1 from public.rounds where id = safe_round_id;
+    if not found then
+      safe_round_id := null;
+    end if;
+  end if;
+
   insert into public.session_events(user_id, case_id, round_id, plan_type, delta, reason)
-  values (p_user_id, p_case_id, p_round_id, p_plan_type, -1, p_reason);
+  values (p_user_id, p_case_id, safe_round_id, p_plan_type, -1, p_reason);
 
   return query select true, updated_remaining;
 end;
@@ -81,7 +90,16 @@ create or replace function public.refund_session(
 returns void
 language plpgsql
 as $$
+declare
+  safe_round_id uuid;
 begin
+  safe_round_id := p_round_id;
+  if safe_round_id is not null then
+    perform 1 from public.rounds where id = safe_round_id;
+    if not found then
+      safe_round_id := null;
+    end if;
+  end if;
   if p_plan_type not in ('standard', 'premium') then
     return;
   end if;
@@ -97,7 +115,7 @@ begin
   end if;
 
   insert into public.session_events(user_id, case_id, round_id, plan_type, delta, reason)
-  values (p_user_id, p_case_id, p_round_id, p_plan_type, 1, p_reason);
+  values (p_user_id, p_case_id, safe_round_id, p_plan_type, 1, p_reason);
 end;
 $$;
 
