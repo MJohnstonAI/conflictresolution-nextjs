@@ -17,7 +17,7 @@ type SessionStore = {
     caseId: string | null;
     roundId: string | null;
     reason: string | null;
-  }) => Promise<{ consumed: boolean; remaining: number | null }>;
+  }) => Promise<{ consumed: boolean; remaining: number | null; errorMessage?: string }>;
   refund: (input: {
     userId: string;
     planType: PlanKey;
@@ -39,6 +39,12 @@ const supabaseAdmin =
 
 const errorResponse = (message: string, status: number) =>
   NextResponse.json({ error: { message, upstreamStatus: status } }, { status });
+
+const withDebugMessage = (base: string, detail?: string) => {
+  if (!detail) return base;
+  if (process.env.NODE_ENV === "production") return base;
+  return `${base}: ${detail}`;
+};
 
 const normalizePlan = (planType?: PlanType | string): PlanKey =>
   planType === "premium" ? "premium" : "standard";
@@ -84,7 +90,10 @@ export const createSessionGuard = (store: SessionStore | null) => {
 
     if (!result.consumed) {
       if (result.remaining === null) {
-        return { ok: false, error: errorResponse("Session check failed", 500) };
+        return {
+          ok: false,
+          error: errorResponse(withDebugMessage("Session check failed", result.errorMessage), 500),
+        };
       }
       return {
         ok: false,
@@ -144,7 +153,7 @@ const createSupabaseSessionStore = (): SessionStore | null => {
       });
       if (error) {
         console.warn("Session consume failed:", error);
-        return { consumed: false, remaining: null };
+        return { consumed: false, remaining: null, errorMessage: error.message };
       }
       const row = Array.isArray(data) ? data[0] : data;
       return { consumed: !!row?.consumed, remaining: row?.remaining ?? null };
