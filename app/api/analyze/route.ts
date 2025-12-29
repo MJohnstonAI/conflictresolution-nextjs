@@ -27,6 +27,9 @@ export async function POST(request: NextRequest) {
 
   const authGuard = await requireAiAuth(request);
   if (authGuard.ok === false) return authGuard.error;
+  if (!authGuard.userId) {
+    return errorResponse("Sign in required to run a Session.", 401);
+  }
 
   const ip = getClientIp(request);
   const limit = rateLimit(`analyze:${ip}`, 8, 60_000);

@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { PlanType } from "@/types";
+import { cleanEnvValue } from "@/lib/server/env";
 
 type PlanKey = "standard" | "premium";
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -34,12 +35,13 @@ export const toOpenRouterErrorPayload = (error: OpenRouterError): OpenRouterErro
   requestId: error.requestId ?? undefined,
 });
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const openRouterKey = process.env.OPENROUTER_API_KEY;
-const openRouterBaseUrl = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
-const openRouterReferer = process.env.OPENROUTER_REFERER || "https://localhost:3000";
-const openRouterTitle = process.env.OPENROUTER_TITLE || "conflictresolution-nextjs";
+const supabaseUrl = cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const serviceRoleKey = cleanEnvValue(process.env.SUPABASE_SERVICE_ROLE_KEY);
+const openRouterKey = cleanEnvValue(process.env.OPENROUTER_API_KEY);
+const openRouterBaseUrl =
+  cleanEnvValue(process.env.OPENROUTER_BASE_URL) || "https://openrouter.ai/api/v1";
+const openRouterReferer = cleanEnvValue(process.env.OPENROUTER_REFERER) || "https://localhost:3000";
+const openRouterTitle = cleanEnvValue(process.env.OPENROUTER_TITLE) || "conflictresolution-nextjs";
 const openRouterRetryMax = Number(process.env.OPENROUTER_RETRY_MAX || 3);
 const openRouterRetryBaseMs = Number(process.env.OPENROUTER_RETRY_BASE_MS || 800);
 const openRouterRetryMaxMs = Number(process.env.OPENROUTER_RETRY_MAX_MS || 8000);

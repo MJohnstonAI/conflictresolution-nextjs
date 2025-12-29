@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import type { PlanType } from "@/types";
+import { cleanEnvValue } from "@/lib/server/env";
 
 type CaseAccessResult =
   | { ok: true; caseRow: any }
   | { ok: false; error: NextResponse };
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseUrl = cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const serviceRoleKey = cleanEnvValue(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 const supabaseAdmin =
   supabaseUrl && serviceRoleKey
