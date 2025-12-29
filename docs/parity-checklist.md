@@ -8,7 +8,7 @@
 - /templates (Template Library)
 - /testimonials (Success Stories)
 - /help (Help Center with Guide, FAQ, Contact)
-- /unlock/credits (Case File Store)
+- /unlock/credits (Sessions Store)
 - /case/:id (War Room case detail)
 
 ## Interactions by Route
@@ -17,14 +17,14 @@
 - Sign in / sign out button (auth state)
 - Try Demo Mode button
 - Settings modal with theme selector and Done
-- Wallet credits button (nav footer)
+- Wallet sessions button (nav footer)
 - Demo banner click -> /demo
 - Opponent combobox selector
 - Conditional custom adversary input when "Other"
 - Case textarea input
 - Start Analysis button (disabled when invalid)
 - Case setup modal (Standard vs Professional)
-  - Buy/Assign credit buttons
+  - Start case buttons
   - Return Home button
   - Close (X) and Done
 
@@ -70,7 +70,7 @@
 - Copy support email button
 
 ### /unlock/credits
-- Purchase buttons for Standard and Premium packs
+- Purchase buttons for Standard and Premium Sessions packs
 - Back to dashboard link
 
 ### /case/:id (War Room)

@@ -1,9 +1,9 @@
 ﻿---
-# Conflict Resolution — Project Brief
+# Conflict Resolution - Project Brief
 
 ## Summary
 Conflict Resolution is a Next.js web application that helps users navigate interpersonal and professional disputes by:
-- capturing a dispute “case” (context + adversary messages),
+- capturing a dispute "case" (context + adversary messages),
 - generating structured analysis and multiple response drafts (Peacekeeper, Barrister, Grey Rock, Nuclear),
 - saving case history to a Vault for follow-up and export.
 
@@ -18,29 +18,29 @@ The product uses Supabase for auth + persistence and OpenRouter for LLM access (
 ## Target Users
 - Individuals handling relationship/family/friend conflicts.
 - Professionals handling workplace/client/landlord disputes.
-- Power users who want “case files” and repeatable templates.
+- Power users who want "case files" and repeatable templates.
 
 ## Core User Flows
 ### 1) Start New Case
-- User selects an adversary type and writes a case note (“Describe the Conflict Case”).
-- Standard vs Premium case selection happens at case creation.
+- User selects an adversary type and writes a case note ("Describe the Conflict Case").
+- Standard vs Premium model selection happens at case creation.
 - Case note is limited to **40,000 characters** (with auto-summarization when pasting over the limit).
 
 ### 2) War Room (Case Playback + Response Generation)
-- User provides the adversary’s latest message.
+- User provides the adversary's latest message.
 - App generates:
   - vibe check + tactical summary
   - fallacy/tactic detection
   - risk assessment
   - 4 response drafts (tone modes)
 - User chooses a tone and copies the draft.
-- The case progresses round-by-round until the plan’s round limit is reached.
+- Each generation consumes 1 Session; rounds are unlimited and remain in the case timeline.
 
 ### 3) Vault
 - Saved cases and their rounds are accessible for review and export.
 
 ### 4) Demo Mode (No AI Calls)
-- Demo scenarios are pre-scripted (like a recording): the user “plays” rounds sequentially.
+- Demo scenarios are pre-scripted (like a recording): the user "plays" rounds sequentially.
 - The app renders the same War Room UI, but does not call the AI provider.
 
 ## Key Features
@@ -72,7 +72,7 @@ Data flow (analyze):
 5. Client persists the round to Supabase (or local fallback in demo/guest paths).
 
 ## Persistence Model (Supabase)
-- `profiles`: user identity + credits + admin flags + preferred theme + model override ids.
+- `profiles`: user identity + session balances + admin flags + preferred theme + model override ids.
 - `cases`: case metadata and user-provided case note.
 - `rounds`: per-round adversary text and AI analysis payload.
 - `ai_models`: catalog mapping `plan_type -> model_slug` (and stable IDs for references).
@@ -89,7 +89,7 @@ Data flow (analyze):
 
 ### Token / Output Controls (current)
 - Requests use `max_tokens` to cap completion output.
-- Premium “deep thinking” is implemented as a larger `max_tokens` cap (not a provider-native reasoning budget).
+- Premium "deep thinking" is implemented as a larger `max_tokens` cap (not a provider-native reasoning budget).
 
 ## Demo Experience Design
 - Demo scenarios are authored in `services/demo_scenarios.ts`.
@@ -123,7 +123,7 @@ Required env vars:
 ## Roadmap (Suggested)
 - Better server-side caps for all prompt inputs (history/context) with explicit truncation policies.
 - Optional streaming for generation and improved perceived latency.
-- More demo scenarios and richer “recording” playback (timing, narration, progress cues).
+- More demo scenarios and richer "recording" playback (timing, narration, progress cues).
 - Analytics for conversion from demo to paid.
 
 ---
