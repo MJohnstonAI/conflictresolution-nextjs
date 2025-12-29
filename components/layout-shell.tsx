@@ -507,8 +507,8 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
   const pathname = usePathname();
   const [session, setSession] = useState<any>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [credits, setCredits] = useState(0);
-  const [standardCredits, setStandardCredits] = useState(0);
+  const [premiumSessions, setPremiumSessions] = useState(0);
+  const [standardSessions, setStandardSessions] = useState(0);
 
   useEffect(() => {
     themeService.init();
@@ -520,8 +520,8 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
     });
 
     store.getAccount().then((acc) => {
-      setCredits(acc.premiumCredits);
-      setStandardCredits(acc.standardCredits);
+      setPremiumSessions(acc.premiumSessions);
+      setStandardSessions(acc.standardSessions);
       if (acc.theme) themeService.set(acc.theme);
     });
 
@@ -622,15 +622,15 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
           >
             <div className="flex justify-between w-full">
               <div>
-                <span className="text-[10px] text-slate-500 block">Standard</span>
+                <span className="text-[10px] text-slate-500 block">Standard Sessions</span>
                 <span className="text-lg font-bold text-slate-100 group-hover:text-blue-400 transition-colors">
-                  {standardCredits}
+                  {standardSessions}
                 </span>
               </div>
               <div className="text-right">
-                <span className="text-[10px] text-slate-500 block">Premium</span>
+                <span className="text-[10px] text-slate-500 block">Premium Sessions</span>
                 <span className="text-lg font-bold text-slate-100 group-hover:text-gold-400 transition-colors">
-                  {credits}
+                  {premiumSessions}
                 </span>
               </div>
             </div>

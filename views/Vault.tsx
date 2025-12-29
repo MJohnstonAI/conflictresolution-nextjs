@@ -35,7 +35,7 @@ export const Vault: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [editingCase, setEditingCase] = useState<Case | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
-    const [account, setAccount] = useState<UserAccount>({ premiumCredits: 0, standardCredits: 0, totalCasesCreated: 0, isAdmin: false, role: 'demo' });
+    const [account, setAccount] = useState<UserAccount>({ premiumSessions: 0, standardSessions: 0, totalCasesCreated: 0, isAdmin: false, role: 'demo' });
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [syncError, setSyncError] = useState(false);
   
@@ -94,15 +94,25 @@ export const Vault: React.FC = () => {
 
     const handleExportMarkdown = async (c: Case) => {
         toast("Generating markdown file...", "info");
-        const rounds = await store.getRounds(c.id);
-        exportService.downloadMarkdown(c, rounds);
-        toast("Download started.", "success");
+        try {
+            const rounds = await store.getRounds(c.id);
+            exportService.downloadMarkdown(c, rounds);
+            toast("Download started.", "success");
+        } catch (error) {
+            console.error("Markdown export failed:", error);
+            toast("Couldn't sync case file. Retry.", "error");
+        }
     };
 
     const handleExportPDF = async (c: Case) => {
         toast("Preparing document...", "info");
-        const rounds = await store.getRounds(c.id);
-        exportService.printToPDF(c, rounds);
+        try {
+            const rounds = await store.getRounds(c.id);
+            exportService.printToPDF(c, rounds);
+        } catch (error) {
+            console.error("PDF export failed:", error);
+            toast("Couldn't sync case file. Retry.", "error");
+        }
     };
   
     const filteredCases = cases.filter(c => 
@@ -119,7 +129,7 @@ export const Vault: React.FC = () => {
                     <AlertCircle className="w-5 h-5 text-rose-500" />
                     <div>
                         <p className="text-sm font-bold text-slate-100">Account Sync Warning</p>
-                        <p className="text-xs text-slate-400">Your profile is taking longer than expected to initialize. Credits may not show correctly.</p>
+                        <p className="text-xs text-slate-400">Your profile is taking longer than expected to initialize. Sessions may not show correctly.</p>
                     </div>
                 </div>
                 <button onClick={fetchData} className="px-3 py-1.5 bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-rose-600 transition-all">
@@ -183,9 +193,8 @@ export const Vault: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
             {filteredCases.map(c => {
                 const caseNum = caseNumberMap.get(c.id) || 0;
-                const roundsLimit = c.roundsLimit || (c.planType === "premium" ? 40 : 10);
-                const remaining = Math.max(0, roundsLimit - c.roundsUsed);
-                const progressPercentage = (c.roundsUsed / roundsLimit) * 100;
+                const roundsLogged = Math.max(0, c.roundsUsed);
+                const progressPercentage = roundsLogged > 0 ? 100 : 0;
                 
                 return (
                    <div key={c.id} onClick={() => router.push(`/case/${c.id}`)} className={`group bg-navy-900 border rounded-2xl p-6 relative overflow-visible transition-all hover:shadow-2xl hover:shadow-black/40 cursor-pointer ${c.planType === 'premium' ? 'border-gold-500/20 hover:border-gold-500/60 bg-gradient-to-br from-navy-900 to-navy-950' : 'border-navy-800 hover:border-navy-700'}`}>
@@ -229,7 +238,7 @@ export const Vault: React.FC = () => {
                                 </div>
                                 <div className="text-right">
                                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono">
-                                        ROUND {c.roundsUsed} / <span className="text-slate-300">REMAINING {remaining}</span>
+                                        ROUNDS LOGGED <span className="text-slate-300">{roundsLogged}</span>
                                     </span>
                                 </div>
                             </div>

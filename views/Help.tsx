@@ -188,20 +188,20 @@ export const Help: React.FC = () => {
                             <h3 className="text-lg font-bold text-slate-100">Mix & Match Your Arsenal</h3>
                         </div>
                         <p className="text-sm text-slate-300 leading-relaxed mb-4">
-                            You don't need to commit to just one tier. Your account wallet can hold <strong>both Standard and Premium credits</strong> simultaneously. 
+                            You don't need to commit to just one tier. Your account wallet can hold <strong>both Standard and Premium Sessions</strong> simultaneously. 
                         </p>
                         <div className="grid md:grid-cols-2 gap-4">
                             <div className="bg-navy-950/50 p-4 rounded-lg border border-navy-800">
-                                <div className="text-blue-400 font-bold text-xs uppercase tracking-wider mb-1">Standard Credits</div>
-                                <p className="text-xs text-slate-400">Perfect for everyday friction—petty arguments, minor misunderstandings, or quick social replies (10 rounds).</p>
+                                <div className="text-blue-400 font-bold text-xs uppercase tracking-wider mb-1">Standard Sessions</div>
+                                <p className="text-xs text-slate-400">Perfect for everyday friction - petty arguments, minor misunderstandings, or quick social replies (10 Sessions).</p>
                             </div>
                             <div className="bg-navy-950/50 p-4 rounded-lg border border-gold-500/20">
-                                <div className="text-gold-500 font-bold text-xs uppercase tracking-wider mb-1">Premium Credits</div>
-                                <p className="text-xs text-slate-400">Save these for the heavy hitters—legal threats, narcissists, custody battles, or financial disputes (40 rounds + expert analysis).</p>
+                                <div className="text-gold-500 font-bold text-xs uppercase tracking-wider mb-1">Premium Sessions</div>
+                                <p className="text-xs text-slate-400">Save these for the heavy hitters - legal threats, narcissists, custody battles, or financial disputes (40 Sessions + expert analysis).</p>
                             </div>
                         </div>
                         <p className="text-xs text-slate-500 mt-4 italic">
-                            When you click "Start New Case", simply choose the tier that matches the threat level of that specific conflict.
+                            When you click "Start New Case", choose the tier that matches the conflict. Sessions can be used across any cases and rounds.
                         </p>
                     </div>
                 </div>
@@ -231,16 +231,16 @@ export const Help: React.FC = () => {
                         <p>The analysis takes time because the AI is performing a multi-step cognitive process rather than just "chatting." Here is a breakdown of why it requires extra processing time:</p>
                         <ul className="space-y-3">
                             <li className="flex gap-2">
-                                <span className="font-bold text-slate-200 shrink-0">• Deep Thinking (Premium):</span>
+                                <span className="font-bold text-slate-200 shrink-0">Deep Thinking (Premium):</span>
                                 <span className="text-slate-400">If you are using a Professional Case, the model uses a "Thinking Budget." It spends several seconds reasoning through hidden psychological motives, power dynamics, and legal risks before it even begins writing your responses.</span>
                             </li>
                             <li className="flex gap-2">
-                                <span className="font-bold text-slate-200 shrink-0">• Structural Complexity:</span>
+                                <span className="font-bold text-slate-200 shrink-0">Structural Complexity:</span>
                                 <span className="text-slate-400">In a single call, the AI must evaluate the "vibe," calculate a risk score, identify logical fallacies, and then draft four distinct strategic responses. This is a massive amount of data to process with accuracy.</span>
                             </li>
                             <li className="flex gap-2">
-                                <span className="font-bold text-slate-200 shrink-0">• Strategy vs. Speed:</span>
-                                <span className="text-slate-400">For high-stakes conflicts (like legal or co-parenting disputes), the system is tuned to prioritize <strong>tactical precision</strong> over raw speed. It’s designed to ensure you don't send a response you'll regret.</span>
+                                <span className="font-bold text-slate-200 shrink-0">Strategy vs. Speed:</span>
+                                <span className="text-slate-400">For high-stakes conflicts (like legal or co-parenting disputes), the system is tuned to prioritize <strong>tactical precision</strong> over raw speed. It's designed to ensure you don't send a response you'll regret.</span>
                             </li>
                         </ul>
                         <div className="bg-blue-900/10 border border-blue-500/20 p-3 rounded-lg flex items-start gap-2">
@@ -297,19 +297,19 @@ export const Help: React.FC = () => {
               />
               <FAQItem 
                   question="What am I actually paying for?" 
-                  answer="We value transparency. You are not buying vague 'points'. You are purchasing a specific 'Case File'. One Premium purchase = One complete conflict resolution project (up to 40 rounds of analysis). This fee covers the high cost of the AI processing and the storage of your case history." 
+                  answer="We value transparency. You are purchasing Sessions. 1 Session generates strategy, mediation-style guidance, and draft responses for one round. Sessions can be used across any cases and rounds." 
               />
               <FAQItem 
-                  question="Can I mix Standard and Premium credits?" 
-                  answer="Absolutely. Your account wallet is flexible. You can hold balances for both. Many users keep a 'Standard' balance for day-to-day issues (like a rude neighbor) and buy 'Premium' credits only when a serious issue arises (like a landlord dispute). When starting a case, you simply assign the credit type you want to use." 
+                  question="Can I mix Standard and Premium Sessions?" 
+                  answer="Absolutely. Your wallet can hold balances for both. Many users keep Standard Sessions for day-to-day issues and Premium Sessions for high-stakes disputes. When starting a case, choose the tier that fits the conflict." 
               />
               <FAQItem 
                   question="What is a 'Round'?" 
-                  answer="A round consists of one message from your opponent, the AI analysis, and the generated response options. Premium cases allow up to 40 rounds." 
+                  answer="A round consists of one message from your opponent plus the generated strategy and response options. Running a Session produces the outputs for one round." 
               />
               <FAQItem 
                   question="What happens when a case is full?" 
-                  answer="Once a case reaches its round limit (e.g., 40), the AI stops analyzing. You can export the file or start a 'Part 2' case using a summary of the previous one." 
+                  answer="Cases no longer have round limits. If you run out of Sessions, generation pauses until you add more, but your case history remains available." 
               />
             </div>
           </TabsContent>
@@ -383,3 +383,5 @@ const FAQItem: React.FC<{ question: string; answer: React.ReactNode }> = ({ ques
     </div>
   );
 };
+
+

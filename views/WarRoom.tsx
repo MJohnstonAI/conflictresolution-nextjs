@@ -39,11 +39,13 @@ interface InputSectionProps {
     isHero?: boolean;
     isDemo?: boolean;
     demoHasNext?: boolean;
+    isRerun?: boolean;
 }
 
 const InputSection: React.FC<InputSectionProps> = memo(({ 
-    inputText, setInputText, senderName, setSenderName, isAnalyzing, isCaseClosed, analysisError, setAnalysisError, activeCase, onSubmit, roundNumber, isHero = false, isDemo = false, demoHasNext = true
+    inputText, setInputText, senderName, setSenderName, isAnalyzing, isCaseClosed, analysisError, setAnalysisError, activeCase, onSubmit, roundNumber, isHero = false, isDemo = false, demoHasNext = true, isRerun = false
 }) => {
+    const router = useRouter();
     const [isTyping, setIsTyping] = useState(false);
     const typingTimeoutRef = useRef<number | null>(null);
     const [limitNotice, setLimitNotice] = useState<string | null>(null);
@@ -86,13 +88,16 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                 ? "Play Demo Round 1"
                 : "Play Next Demo Round"
             : "Demo Complete"
-        : "Analyze & Generate Response";
+        : isRerun
+            ? "Re-run Session"
+            : "Run Session";
 
     const actionDisabled =
         isAnalyzing || isSummarizingMessage || isCaseClosed || (isDemo ? !demoHasNext : !inputText.trim());
 
     const isTransientError =
         !!analysisError && /Error (429|502|503|504)|timed out|timeout/i.test(analysisError);
+    const isSessionError = !!analysisError && /session/i.test(analysisError);
     const requestIdMatch = analysisError?.match(/Request ID:\s*([^\s]+)/i);
     const requestId = requestIdMatch?.[1];
 
@@ -200,7 +205,9 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                             ? `DEMO ROUND ${roundNumber} // READY TO PLAY`
                             : isHero
                                 ? "AWAITING TRANSMISSION (EVIDENCE)"
-                                : `ROUND ${roundNumber} // AWAITING INPUT`}
+                                : isRerun
+                                    ? `ROUND ${roundNumber} // RERUN READY`
+                                    : `ROUND ${roundNumber} // AWAITING INPUT`}
                     </span>
                     <span
                         className={`text-[10px] font-mono ${
@@ -239,6 +246,11 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                             `Approaching the ${MAX_OPPONENT_MESSAGE_CHARS.toLocaleString()} character limit. Consider splitting long messages across rounds.`}
                     </div>
                 )}
+                {isRerun && !isDemo && (
+                    <div className="text-[10px] font-mono text-amber-300 px-1">
+                        Re-running this round will consume 1 Session.
+                    </div>
+                )}
             </div>
 
             <div className={isHero ? "mt-8" : "mt-6"}>
@@ -257,7 +269,7 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                                     ? "Summarizing Message..."
                                     : isDemo
                                       ? "Loading Demo Round..."
-                                      : "Analyzing Psychology..."}
+                                      : "Generating Strategy..."}
                             </span>
                         </div>
                     ) : (
@@ -290,7 +302,16 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                             disabled={isAnalyzing || isSummarizingMessage || isCaseClosed}
                             className="px-3 py-2 rounded-lg border border-rose-500/40 text-rose-100 hover:text-white hover:border-rose-400 transition-all text-xs font-bold uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-rose-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
                         >
-                            Retry Analysis
+                            Retry Session
+                        </button>
+                    )}
+                    {isSessionError && !isDemo && (
+                        <button
+                            type="button"
+                            onClick={() => router.push("/unlock/credits")}
+                            className="px-3 py-2 rounded-lg border border-rose-500/40 text-rose-100 hover:text-white hover:border-rose-400 transition-all text-xs font-bold uppercase tracking-widest focus-visible:ring-2 focus-visible:ring-rose-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
+                        >
+                            Get Sessions
                         </button>
                     )}
                 </div>
@@ -508,6 +529,11 @@ const SingleRoundView: React.FC<{
                                     <p className="text-slate-200 text-base leading-relaxed whitespace-pre-wrap">
                                         "{round.analysisSummary}"
                                     </p>
+                                    {round.opponentText && (
+                                        <p className="text-[11px] text-slate-500 font-mono">
+                                            Evidence on file: "{round.opponentText.slice(0, 180)}{round.opponentText.length > 180 ? "..." : ""}"
+                                        </p>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -679,11 +705,13 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const [activeCase, setActiveCase] = useState<Case | null>(null);
     const [rounds, setRounds] = useState<Round[]>([]);
     const [loading, setLoading] = useState(true);
+    const [syncError, setSyncError] = useState<string | null>(null);
     const [allCases, setAllCases] = useState<Case[]>([]);
     const [account, setAccount] = useState<UserAccount | null>(null);
     
     // View State
     const [viewIndex, setViewIndex] = useState<number>(0); // 0 = Round 1, rounds.length = New Input
+    const [rerunRoundId, setRerunRoundId] = useState<string | null>(null);
     
     // Input State
     const [inputText, setInputText] = useState(initialText || "");
@@ -698,11 +726,12 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     );
     const isDemo = !!activeCase?.demoScenarioId && activeCase?.planType === "demo";
 
-    // Initial Load
-    useEffect(() => {
+    const loadCaseFile = useCallback(async () => {
         const targetId = caseId || id;
         if (!targetId) return;
-        const load = async () => {
+        setLoading(true);
+        setSyncError(null);
+        try {
             const [c, r, cases, acc] = await Promise.all([
                 store.getCase(targetId),
                 store.getRounds(targetId),
@@ -721,6 +750,16 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 }
             }
 
+            if (r.length === 0 && caseData.roundsUsed > 0) {
+                setActiveCase(caseData);
+                setRounds([]);
+                setAllCases(cases);
+                setAccount(acc);
+                setSyncError("Couldn't sync case file. Retry.");
+                setLoading(false);
+                return;
+            }
+
             setAllCases(cases);
             setActiveCase(caseData);
             setRounds(r);
@@ -734,15 +773,29 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             } else {
                 setViewIndex(0); // Input mode (Round 1)
             }
-        };
-        load();
+        } catch (error) {
+            console.error("Case file sync failed:", error);
+            setSyncError("Couldn't sync case file. Retry.");
+            setLoading(false);
+        }
     }, [caseId, id, router]);
+
+    // Initial Load
+    useEffect(() => {
+        loadCaseFile();
+    }, [loadCaseFile]);
 
     useEffect(() => {
         if (!isDemo || !demoScenario) return;
         const nextRound = demoScenario.rounds[rounds.length];
         setInputText(nextRound ? nextRound.opponentText : "");
     }, [isDemo, demoScenario, rounds.length]);
+
+    useEffect(() => {
+        if (viewIndex !== rounds.length && rerunRoundId) {
+            setRerunRoundId(null);
+        }
+    }, [viewIndex, rounds.length, rerunRoundId]);
 
     // Create a mapping for sequential case numbers based on chronological order (Replicated from Vault)
     const caseNumberMap = useMemo(() => {
@@ -753,6 +806,10 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     }, [allCases]);
 
     const caseNum = useMemo(() => activeCase ? (caseNumberMap.get(activeCase.id) || 0) : 0, [activeCase, caseNumberMap]);
+    const rerunRoundNumber = useMemo(() => {
+        if (!rerunRoundId) return null;
+        return rounds.find((round) => round.id === rerunRoundId)?.roundNumber ?? null;
+    }, [rerunRoundId, rounds]);
 
     const appendDemoRound = async () => {
         if (!activeCase || !demoScenario) {
@@ -832,17 +889,21 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         setAnalysisError(null);
 
         try {
-            const roundsLimit =
-                activeCase.roundsLimit || (activeCase.planType === "premium" ? 40 : 10);
             const roundsUsedCount = Math.max(activeCase.roundsUsed, rounds.length);
-
-            if (roundsUsedCount >= roundsLimit && !activeCase.isClosed) {
-                const closedCase = { ...activeCase, isClosed: true };
-                await store.saveCase(closedCase);
-                setActiveCase(closedCase);
-                throw new Error("Case limit reached. Case is now closed.");
-            }
             if (activeCase.isClosed) throw new Error("This case is closed.");
+            const isRerun = !!rerunRoundId;
+            const existingIndex = isRerun ? rounds.findIndex((round) => round.id === rerunRoundId) : -1;
+            const baseRound = existingIndex >= 0 ? rounds[existingIndex] : null;
+            if (isRerun && !baseRound) {
+                setRerunRoundId(null);
+            }
+            const roundId = baseRound?.id ?? crypto.randomUUID();
+            const roundNumber = baseRound?.roundNumber ?? (rounds.length + 1);
+            const createdAt = baseRound?.createdAt ?? new Date().toISOString();
+            const selectedMode = baseRound?.selectedMode ?? "Peacekeeper";
+            const rerollsUsed = baseRound?.rerollsUsed ?? 0;
+            const userGoal = baseRound?.userGoal ?? "Hold boundaries";
+            const roundIndex = baseRound ? Math.max(0, baseRound.roundNumber - 1) : rounds.length;
 
             // Context
             const historyText = rounds.slice(-3).map(r => 
@@ -851,6 +912,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
 
             const analysis = await analyzeConflict({
                 caseId: activeCase.id,
+                roundId,
                 opponentType: activeCase.opponentType,
                 mode: 'Peacekeeper',
                 goal: 'Hold boundaries',
@@ -860,41 +922,51 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 planType: activeCase.planType,
                 useDeepThinking: activeCase.planType === 'premium',
                 demoScenarioId: activeCase.demoScenarioId,
-                roundIndex: rounds.length,
+                roundIndex,
                 senderIdentity: senderName
             });
 
             const newRound: Round = {
-                id: crypto.randomUUID(),
+                id: roundId,
                 caseId: activeCase.id,
-                roundNumber: rounds.length + 1,
-                createdAt: new Date().toISOString(),
+                roundNumber,
+                createdAt,
                 opponentText: inputText,
                 senderIdentity: senderName,
-                userGoal: 'Hold boundaries',
+                userGoal,
                 isAnalyzed: true,
-                selectedMode: 'Peacekeeper',
-                rerollsUsed: 0,
+                selectedMode,
+                rerollsUsed,
                 ...analysis
             };
 
             await store.saveRound(newRound);
-            const updatedCase = { ...activeCase, roundsUsed: roundsUsedCount + 1, roundsLimit };
-            await store.saveCase(updatedCase);
-            
-            const updatedRounds = [...rounds, newRound];
-            setRounds(updatedRounds);
-            setActiveCase(updatedCase);
-            setInputText("");
-            
-            // Auto-switch view to the result we just generated
-            setViewIndex(updatedRounds.length - 1); 
-            toast("Analysis complete.", "success");
+            if (baseRound && existingIndex >= 0) {
+                const updatedRounds = [...rounds];
+                updatedRounds[existingIndex] = newRound;
+                setRounds(updatedRounds);
+                setRerunRoundId(null);
+                setInputText("");
+                setViewIndex(existingIndex);
+                toast("Session updated.", "success");
+            } else {
+                const updatedCase = { ...activeCase, roundsUsed: roundsUsedCount + 1 };
+                await store.saveCase(updatedCase);
+                
+                const updatedRounds = [...rounds, newRound];
+                setRounds(updatedRounds);
+                setActiveCase(updatedCase);
+                setInputText("");
+                
+                // Auto-switch view to the result we just generated
+                setViewIndex(updatedRounds.length - 1); 
+                toast("Session complete.", "success");
+            }
 
         } catch (e: unknown) {
             console.error(e);
             const message =
-                e instanceof Error ? e.message : typeof e === "string" ? e : "Analysis failed.";
+                e instanceof Error ? e.message : typeof e === "string" ? e : "Session failed.";
             setAnalysisError(message);
         } finally {
             setIsAnalyzing(false);
@@ -937,6 +1009,17 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         setRounds(updatedRounds);
         await store.saveRound(updatedRound);
         toast("Response refined.", "success");
+    };
+
+    const startRerun = (round: Round) => {
+        if (!round) return;
+        const confirmed = window.confirm("Re-running this round will consume 1 Session. Continue?");
+        if (!confirmed) return;
+        setInputText(round.opponentText || "");
+        setSenderName(round.senderIdentity || "");
+        setRerunRoundId(round.id);
+        setViewIndex(rounds.length);
+        setAnalysisError(null);
     };
 
     const goToNext = () => {
@@ -992,18 +1075,47 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         }
     };
 
-    if (loading || !activeCase) return <div className="flex items-center justify-center h-screen bg-navy-950"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold-500"></div></div>;
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center h-screen bg-navy-950 gap-3 text-slate-400">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold-500"></div>
+                <div className="text-xs font-mono uppercase tracking-widest">Loading case file...</div>
+            </div>
+        );
+    }
+
+    if (syncError) {
+        return (
+            <div className="flex flex-col items-center justify-center h-screen bg-navy-950 gap-4 text-slate-300 px-6 text-center">
+                <div className="text-sm font-semibold">{syncError}</div>
+                <button
+                    type="button"
+                    onClick={loadCaseFile}
+                    className="px-4 py-2 rounded-lg bg-navy-900 border border-navy-800 hover:border-gold-500/40 text-xs font-bold uppercase tracking-widest text-gold-400"
+                >
+                    Retry
+                </button>
+            </div>
+        );
+    }
+
+    if (!activeCase) {
+        return (
+            <div className="flex items-center justify-center h-screen bg-navy-950 text-slate-400 text-xs font-mono uppercase tracking-widest">
+                Case not found.
+            </div>
+        );
+    }
 
     // Determine current view mode
     const isInputMode = viewIndex === rounds.length;
     const currentRound = !isInputMode ? rounds[viewIndex] : null;
 
     // Stats for Progress Bar
-    const roundsLimit = activeCase.roundsLimit || (activeCase.planType === "premium" ? 40 : 10);
     const roundsUsedCount = Math.max(rounds.length, activeCase.roundsUsed);
-    const remainingCount = Math.max(0, roundsLimit - roundsUsedCount);
-    const progressPercentage = (roundsUsedCount / roundsLimit) * 100;
     const displayRound = isInputMode ? rounds.length : (viewIndex + 1);
+    const progressPercentage =
+        roundsUsedCount > 0 ? Math.min(100, (displayRound / roundsUsedCount) * 100) : 0;
     const activeModelSlug =
         currentRound?.modelSlug ||
         [...rounds].reverse().find((round) => round.modelSlug)?.modelSlug ||
@@ -1013,6 +1125,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
               ? "anthropic/claude-haiku-4.5"
               : "demo-script");
     const demoHasNext = isDemo && !!demoScenario?.rounds[rounds.length];
+    const isRerun = !!rerunRoundId;
+    const inputRoundNumber = isRerun ? (rerunRoundNumber ?? rounds.length + 1) : rounds.length + 1;
 
     return (
         <div className="w-full h-full">
@@ -1070,7 +1184,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                 </div>
                                 <div className="text-right flex-1 min-w-0">
                                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono whitespace-nowrap">
-                                        ROUND {displayRound} / <span className="text-slate-300">REMAINING {remainingCount}</span>
+                                        ROUND {displayRound} / <span className="text-slate-300">{roundsUsedCount} LOGGED</span>
                                     </span>
                                 </div>
                             </div>
@@ -1096,6 +1210,14 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                         <span className="hidden sm:inline text-[10px] font-mono text-gold-500 font-bold uppercase tracking-widest bg-navy-900 px-3 py-1.5 rounded border border-navy-800">
                              {isInputMode ? "AWAITING TRANSMISSION" : `VIEWING ROUND ${viewIndex + 1}`}
                         </span>
+                        {!isInputMode && !isDemo && currentRound && (
+                            <button
+                                onClick={() => startRerun(currentRound)}
+                                className="flex items-center gap-2 px-4 py-2 bg-navy-900 hover:bg-navy-800 text-slate-200 text-sm font-bold rounded-lg border border-navy-700 transition-all"
+                            >
+                                Re-run Session
+                            </button>
+                        )}
                         {!isInputMode && (
                             <button 
                             onClick={handleDownload}
@@ -1138,14 +1260,14 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                     </div>
                 )}
 
-                {!isDemo && (activeCase.isClosed || remainingCount === 0) && (
+                {!isDemo && activeCase.isClosed && (
                     <div className="mb-4 bg-navy-900 border border-gold-500/20 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="min-w-0">
                             <div className="text-[10px] font-bold text-gold-500 uppercase tracking-widest font-mono">
                                 Case Closed
                             </div>
                             <p className="text-sm text-slate-200 font-semibold mt-1">
-                                You've reached this case's round limit.
+                                This case file is marked as closed.
                             </p>
                             <p className="text-xs text-slate-400 mt-1">
                                 Export your file, or start a Part 2 with a summary of this case.
@@ -1210,9 +1332,10 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                          isAnalyzing={isAnalyzing} isCaseClosed={activeCase.isClosed}
                                          analysisError={analysisError} setAnalysisError={setAnalysisError}
                                          activeCase={activeCase} onSubmit={handleAnalyze}
-                                         roundNumber={rounds.length + 1} isHero={true}
+                                         roundNumber={inputRoundNumber} isHero={true}
                                          isDemo={isDemo}
                                          demoHasNext={demoHasNext}
+                                         isRerun={isRerun}
                                       />
                                   </div>
                              </div>
@@ -1223,9 +1346,10 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                      isAnalyzing={isAnalyzing} isCaseClosed={activeCase.isClosed}
                                      analysisError={analysisError} setAnalysisError={setAnalysisError}
                                      activeCase={activeCase} onSubmit={handleAnalyze}
-                                     roundNumber={rounds.length + 1} isHero={false}
+                                     roundNumber={inputRoundNumber} isHero={false}
                                      isDemo={isDemo}
                                      demoHasNext={demoHasNext}
+                                     isRerun={isRerun}
                                  />
                             )}
                          </div>

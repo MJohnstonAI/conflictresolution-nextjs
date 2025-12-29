@@ -9,13 +9,13 @@
  */
 
 export const BILLING_PRODUCT_IDS = {
-  // STANDARD TIER
-  STANDARD_CASE_PASS: "pass_standard_case_499", // $4.99 (1 case, 10 rounds)
+  // STANDARD SESSIONS
+  STANDARD_SESSIONS_10: "pass_standard_case_499", // $4.99 (10 Sessions)
 
-  // PREMIUM CREDIT PACKS
-  PREMIUM_CREDIT_1: "credit_premium_1_1499",   // $14.99 (1 Credit)
-  PREMIUM_CREDIT_3: "credit_premium_3_3999",   // $39.99 (3 Credits)
-  PREMIUM_CREDIT_10: "credit_premium_10_11999", // $119.99 (10 Credits)
+  // PREMIUM SESSIONS
+  PREMIUM_SESSIONS_40: "credit_premium_1_1499",   // $14.99 (40 Sessions)
+  PREMIUM_SESSIONS_120: "credit_premium_3_3999",   // $39.99 (120 Sessions)
+  PREMIUM_SESSIONS_400: "credit_premium_10_11999", // $119.99 (400 Sessions)
 } as const;
 
 export type BillingProductId =

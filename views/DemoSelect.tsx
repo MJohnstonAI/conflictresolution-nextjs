@@ -47,7 +47,7 @@ export const DemoSelect: React.FC = () => {
                         <h1 className="text-3xl font-serif font-bold text-slate-100 mt-2">Choose Your Experience</h1>
                         <p className="text-slate-300 max-w-xl mt-2">
                             Select a scenario to see how Conflict Resolution AI handles different types of disputes.
-                            No credits required.
+                            No sessions required.
                         </p>
                     </div>
                 </div>

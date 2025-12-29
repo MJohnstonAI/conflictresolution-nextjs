@@ -6,7 +6,6 @@ import { Button, Badge } from "@/components/UI";
 import { Combobox } from "@/components/DesignSystem";
 import { toast } from "@/components/DesignSystem";
 import { store } from "@/services/store";
-import { simulatePurchase, BILLING_PRODUCT_IDS } from "@/services/billing";
 import { Case, OpponentType, PlanType, UserAccount } from "@/types";
 import { formatApiErrorMessage, readApiErrorDetails } from "@/lib/client/api-errors";
 import {
@@ -16,7 +15,6 @@ import {
   CheckCircle2,
   FileText,
   Home as HomeIcon,
-  Link as LinkIcon,
   Loader2,
   User,
   Zap,
@@ -80,14 +78,14 @@ interface CaseSetupModalProps {
 }
 
 const CaseSetupModal: React.FC<CaseSetupModalProps> = ({ onClose, onConfirm, opponent }) => {
+  const router = useRouter();
   const [account, setAccount] = useState<UserAccount>({
-    premiumCredits: 0,
-    standardCredits: 0,
+    premiumSessions: 0,
+    standardSessions: 0,
     totalCasesCreated: 0,
     isAdmin: false,
     role: "demo",
   });
-  const [loading, setLoading] = useState<string | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -120,61 +118,8 @@ const CaseSetupModal: React.FC<CaseSetupModalProps> = ({ onClose, onConfirm, opp
     return () => controller.abort();
   }, []);
 
-  const handleBuyStandard = async () => {
-    setLoading("standard_buy");
-    try {
-      const result = await simulatePurchase(BILLING_PRODUCT_IDS.STANDARD_CASE_PASS);
-      if (result.success) {
-        await store.addCredits("standard", 1);
-        const success = await store.deductCredit("standard");
-        if (success) {
-          onConfirm("standard");
-        } else {
-          alert("Error activating case pass.");
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(null);
-  };
-
-  const handleUseStandardCredit = async () => {
-    if (account.standardCredits > 0) {
-      setLoading("using_standard");
-      const success = await store.deductCredit("standard");
-      if (success) onConfirm("standard");
-      setLoading(null);
-    }
-  };
-
-  const handleUsePremiumCredit = async () => {
-    if (account.premiumCredits > 0) {
-      setLoading("using_premium");
-      const success = await store.deductCredit("premium");
-      if (success) onConfirm("premium");
-      setLoading(null);
-    }
-  };
-
-  const handleBuyPremium = async (productId: string, creditAmount: number) => {
-    setLoading(productId);
-    try {
-      const result = await simulatePurchase(productId as any);
-      if (result.success) {
-        await store.addCredits("premium", creditAmount);
-        const success = await store.deductCredit("premium");
-        if (success) {
-          onConfirm("premium");
-        } else {
-          store.getAccount().then(setAccount);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(null);
-  };
+  const sessionHelpText =
+    "1 Session generates strategy + mediation-style guidance + draft responses for one round.";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-md animate-fade-in">
@@ -199,7 +144,7 @@ const CaseSetupModal: React.FC<CaseSetupModalProps> = ({ onClose, onConfirm, opp
                 <Badge color="blue">Standard</Badge>
                 <span className="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-1">
                   <FileText className="w-3 h-3" />
-                  Wallet: {account.standardCredits}
+                  Sessions: {account.standardSessions}
                 </span>
               </div>
               <h3 className="text-xl font-bold text-slate-100">Quick Dispute</h3>
@@ -207,34 +152,27 @@ const CaseSetupModal: React.FC<CaseSetupModalProps> = ({ onClose, onConfirm, opp
             </div>
             <ul className="space-y-3 mb-6 flex-1">
               <li className="text-sm text-slate-200 flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" /> 10 Rounds Included
+                <CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" /> 10 Sessions per period
               </li>
             </ul>
-            {account.standardCredits > 0 ? (
+            <div className="space-y-3 mt-auto">
               <Button
                 variant="primary"
                 className="bg-blue-600 hover:bg-blue-500 border-none text-white w-full"
-                onClick={handleUseStandardCredit}
-                disabled={!!loading}
+                onClick={() => onConfirm("standard")}
               >
-                {loading === "using_standard" ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <LinkIcon className="w-4 h-4 mr-2" /> Assign Credit
-                  </>
-                )}
+                Start Standard Case
               </Button>
-            ) : (
-              <Button
-                variant="primary"
-                className="bg-blue-600 hover:bg-blue-500 border-none text-white mt-auto"
-                onClick={handleBuyStandard}
-                disabled={!!loading}
-              >
-                {loading === "standard_buy" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buy & Start ($4.99)"}
-              </Button>
-            )}
+              {account.standardSessions === 0 && (
+                <button
+                  type="button"
+                  onClick={() => router.push("/unlock/credits")}
+                  className="w-full text-[10px] font-bold uppercase tracking-widest text-blue-300 hover:text-blue-200"
+                >
+                  Get Sessions
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex-1 p-6 flex flex-col relative bg-gradient-to-br from-navy-900 to-navy-950">
@@ -247,50 +185,37 @@ const CaseSetupModal: React.FC<CaseSetupModalProps> = ({ onClose, onConfirm, opp
               <div className="flex flex-col items-end">
                 <div className="flex items-center gap-2 bg-navy-950/50 px-3 py-1 rounded-full border border-gold-500/20">
                   <Briefcase className="w-3 h-3 text-gold-500" />
-                  <span className="text-sm font-bold text-slate-100">{account.premiumCredits} Credits</span>
+                  <span className="text-sm font-bold text-slate-100">{account.premiumSessions} Sessions</span>
                 </div>
               </div>
             </div>
             <div className="mt-auto space-y-3">
-              {account.premiumCredits > 0 ? (
-                <div className="bg-gold-500/10 border border-gold-500/30 rounded-xl p-4 text-center">
-                  <Button
-                    fullWidth
-                    className="bg-gold-600 hover:bg-gold-500 text-navy-950 font-bold"
-                    onClick={handleUsePremiumCredit}
-                    disabled={!!loading}
-                  >
-                    {loading === "using_premium" ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <>
-                        <LinkIcon className="w-4 h-4 mr-2" /> Assign Credit
-                      </>
-                    )}
-                  </Button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => handleBuyPremium(BILLING_PRODUCT_IDS.PREMIUM_CREDIT_1, 1)}
-                    disabled={!!loading}
-                    className="p-3 rounded-xl border border-navy-700 bg-navy-800 hover:border-slate-500 transition-all"
-                  >
-                    <div className="text-sm font-bold text-slate-100">$14.99</div>
-                    <div className="text-[10px] text-slate-400">1 Case</div>
-                  </button>
-                  <button
-                    onClick={() => handleBuyPremium(BILLING_PRODUCT_IDS.PREMIUM_CREDIT_3, 3)}
-                    disabled={!!loading}
-                    className="p-3 rounded-xl border border-gold-500 bg-gold-500/10 hover:bg-gold-500/20 transition-all"
-                  >
-                    <div className="text-sm font-bold text-gold-400">$39.99</div>
-                    <div className="text-[10px] text-gold-400">3 Cases</div>
-                  </button>
-                </div>
+              <ul className="space-y-2 text-xs text-slate-300">
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-gold-500 shrink-0 mt-0.5" /> 40 Sessions per period
+                </li>
+              </ul>
+              <Button
+                fullWidth
+                className="bg-gold-600 hover:bg-gold-500 text-navy-950 font-bold"
+                onClick={() => onConfirm("premium")}
+              >
+                Start Premium Case
+              </Button>
+              {account.premiumSessions === 0 && (
+                <button
+                  type="button"
+                  onClick={() => router.push("/unlock/credits")}
+                  className="w-full text-[10px] font-bold uppercase tracking-widest text-gold-300 hover:text-gold-200"
+                >
+                  Get Sessions
+                </button>
               )}
             </div>
           </div>
+        </div>
+        <div className="px-6 py-4 border-t border-navy-800 text-[11px] text-slate-400">
+          {sessionHelpText}
         </div>
       </div>
     </div>
@@ -331,13 +256,12 @@ const Home: React.FC = () => {
     }
     let finalOpponent = opponent;
     if (opponent === "Other" && customAdversary.trim()) finalOpponent = customAdversary.trim();
-    const limit = tier === "premium" ? 40 : 10;
     const newCase: Case = {
       id: crypto.randomUUID(),
       title: `${finalOpponent} Conflict Case`,
       opponentType: finalOpponent,
       createdAt: new Date().toISOString(),
-      roundsLimit: limit,
+      roundsLimit: 0,
       roundsUsed: 0,
       planType: tier,
       isClosed: false,
@@ -354,7 +278,7 @@ const Home: React.FC = () => {
   const summarizeContextToLimit = async (rawText: string) => {
     setIsSummarizingContext(true);
     setContextNotice("Input exceeds limits and will be summarised with Claude Sonnet 4.5.");
-    toast("Input exceeds 40,000 characters. Summarizing with Claude Sonnet 4.5…", "info");
+    toast("Input exceeds 40,000 characters. Summarizing with Claude Sonnet 4.5...", "info");
     try {
       const authHeaders = await getClientAuthHeaders();
       const response = await fetch("/api/context-summarize", {
