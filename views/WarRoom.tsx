@@ -120,7 +120,8 @@ const InputSection: React.FC<InputSectionProps> = memo(({
 
     const isTransientError =
         !!analysisError && /Error (429|502|503|504)|timed out|timeout/i.test(analysisError);
-    const isSessionError = !!analysisError && /session/i.test(analysisError);
+    const isSessionError =
+        !!analysisError && /No sessions remaining|Error 402/i.test(analysisError);
     const requestIdMatch = analysisError?.match(/Request ID:\s*([^\s]+)/i);
     const requestId = requestIdMatch?.[1];
 
@@ -1060,6 +1061,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 setRerunRoundId(null);
             }
             const roundId = baseRound?.id ?? crypto.randomUUID();
+            const roundIdForAnalysis = baseRound?.id ?? undefined;
             const roundNumber = baseRound?.roundNumber ?? (rounds.length + 1);
             const createdAt = baseRound?.createdAt ?? new Date().toISOString();
             const selectedMode = baseRound?.selectedMode ?? "Peacekeeper";
@@ -1074,7 +1076,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
 
             const analysis = await analyzeConflict({
                 caseId: activeCase.id,
-                roundId,
+                roundId: roundIdForAnalysis,
                 opponentType: activeCase.opponentType,
                 mode: 'Peacekeeper',
                 goal: 'Hold boundaries',
