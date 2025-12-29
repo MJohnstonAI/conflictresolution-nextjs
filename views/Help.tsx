@@ -6,10 +6,48 @@ import { ArrowLeft, BookOpen, MessageCircle, Mail, ChevronDown, ChevronUp, Send,
 import { useRouter } from 'next/navigation';
 import { Button, Badge } from '../components/UI';
 import { Tabs, TabsList, TabsTrigger, TabsContent, toast } from '../components/DesignSystem';
+import { MODE_HELP, MODE_ORDER, type ModeHelp } from '../lib/mode-help';
+import { Mode } from '../types';
 
 export const Help: React.FC = () => {
   const router = useRouter();
   const [emailCopied, setEmailCopied] = useState(false);
+
+  const modeMeta: Record<Mode, { icon: React.ElementType; container: string; label: string }> = {
+    Peacekeeper: {
+      icon: Shield,
+      container: "bg-emerald-900/10 border border-emerald-500/30",
+      label: "text-emerald-400",
+    },
+    Barrister: {
+      icon: Scale,
+      container: "bg-blue-900/10 border border-blue-500/30",
+      label: "text-blue-400",
+    },
+    "Grey Rock": {
+      icon: Mountain,
+      container: "bg-slate-800/30 border border-slate-600/30 md:col-span-2",
+      label: "text-slate-300",
+    },
+    Nuclear: {
+      icon: Flame,
+      container: "bg-rose-900/10 border border-rose-500/30 md:col-span-2",
+      label: "text-rose-400",
+    },
+  };
+
+  const renderDescription = (help: ModeHelp) => {
+    if (!help.highlight) return help.description;
+    const highlightIndex = help.description.indexOf(help.highlight);
+    if (highlightIndex === -1) return help.description;
+    return (
+      <>
+        {help.description.slice(0, highlightIndex)}
+        <strong>{help.highlight}</strong>
+        {help.description.slice(highlightIndex + help.highlight.length)}
+      </>
+    );
+  };
 
   const handleCopyEmail = () => {
       navigator.clipboard.writeText("syncteamai@gmail.com");
@@ -73,62 +111,65 @@ export const Help: React.FC = () => {
                    </div>
 
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      
-                      {/* Peacekeeper */}
-                      <div className="bg-emerald-900/10 border border-emerald-500/30 rounded-lg p-5">
-                         <div className="flex items-center gap-2 mb-2 text-emerald-400 font-bold uppercase text-xs tracking-wider">
-                            <Shield className="w-4 h-4" /> Peacekeeper
-                         </div>
-                         <p className="text-slate-300 text-sm font-bold mb-1">Best For: Saving Relationships</p>
-                         <p className="text-slate-400 text-xs leading-relaxed">
-                            Use this when you want to de-escalate tension with a partner, friend, or family member. It uses "we" language and validation to lower defenses while gently asserting your needs.
-                         </p>
-                      </div>
+                      {MODE_ORDER.map((mode) => {
+                        const help = MODE_HELP[mode];
+                        const meta = modeMeta[mode];
+                        const Icon = meta.icon;
 
-                      {/* Barrister */}
-                      <div className="bg-blue-900/10 border border-blue-500/30 rounded-lg p-5">
-                         <div className="flex items-center gap-2 mb-2 text-blue-400 font-bold uppercase text-xs tracking-wider">
-                            <Scale className="w-4 h-4" /> Barrister
-                         </div>
-                         <p className="text-slate-300 text-sm font-bold mb-1">Best For: Business & Legal</p>
-                         <p className="text-slate-400 text-xs leading-relaxed">
-                            Removes all emotion. Focuses strictly on facts, dates, contracts, and logic. Ideal for landlords, bosses, or custody disputes where you need a "paper trail" for court.
-                         </p>
-                      </div>
-
-                      {/* Grey Rock */}
-                      <div className="bg-slate-800/30 border border-slate-600/30 rounded-lg p-5 md:col-span-2">
-                         <div className="flex items-center gap-2 mb-2 text-slate-300 font-bold uppercase text-xs tracking-wider">
-                            <Mountain className="w-4 h-4" /> Grey Rock
-                         </div>
-                         <div className="grid md:grid-cols-2 gap-4">
-                            <div>
-                                <p className="text-slate-300 text-sm font-bold mb-1">Best For: Narcissists & High Conflict</p>
-                                <p className="text-slate-400 text-xs leading-relaxed">
-                                    Designed for dealing with <strong>Narcissistic Personality Disorder (NPD)</strong>. People with NPD crave emotional reaction (positive or negative) as "supply".
-                                </p>
+                        if (mode === "Grey Rock") {
+                          return (
+                            <div key={mode} className={`${meta.container} rounded-lg p-5`}>
+                              <div className={`flex items-center gap-2 mb-2 ${meta.label} font-bold uppercase text-xs tracking-wider`}>
+                                <Icon className="w-4 h-4" /> {mode}
+                              </div>
+                              <div className="grid md:grid-cols-2 gap-4">
+                                <div>
+                                  <p className="text-slate-300 text-sm font-bold mb-1">Best For: {help.bestFor}</p>
+                                  <p className="text-slate-400 text-xs leading-relaxed">{renderDescription(help)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-slate-300 text-sm font-bold mb-1">Why it works</p>
+                                  <p className="text-slate-400 text-xs leading-relaxed">{help.whyItWorks}</p>
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                                <p className="text-slate-300 text-sm font-bold mb-1">Why it works</p>
-                                <p className="text-slate-400 text-xs leading-relaxed">
-                                    By giving boring, monosyllabic, unemotional responses (like a grey rock), you starve them of this supply. They eventually get bored and move on to a new target.
-                                </p>
+                          );
+                        }
+
+                        if (mode === "Nuclear") {
+                          return (
+                            <div key={mode} className={`${meta.container} rounded-lg p-5`}>
+                              <div className={`flex items-center gap-2 mb-2 ${meta.label} font-bold uppercase text-xs tracking-wider`}>
+                                <Icon className="w-4 h-4" /> {mode}
+                              </div>
+                              <div className="space-y-2">
+                                <p className="text-slate-300 text-sm font-bold">Best For: {help.bestFor}</p>
+                                <p className="text-slate-400 text-xs leading-relaxed">{help.description}</p>
+                                {help.warning && (
+                                  <p className="text-slate-400 text-xs leading-relaxed">
+                                    <strong>Warning:</strong> {help.warning}
+                                  </p>
+                                )}
+                                {help.disclaimer && (
+                                  <p className="text-slate-400 text-xs leading-relaxed">
+                                    <strong>Disclaimer:</strong> {help.disclaimer}
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                         </div>
-                      </div>
+                          );
+                        }
 
-                      {/* Nuclear */}
-                      <div className="bg-rose-900/10 border border-rose-500/30 rounded-lg p-5 md:col-span-2">
-                         <div className="flex items-center gap-2 mb-2 text-rose-400 font-bold uppercase text-xs tracking-wider">
-                            <Flame className="w-4 h-4" /> Nuclear
-                         </div>
-                         <p className="text-slate-300 text-sm font-bold mb-1">Best For: Shutting Down Bullies</p>
-                         <p className="text-slate-400 text-xs leading-relaxed">
-                            A high-risk, high-reward mode. It uses wit, sarcasm, and psychological mirroring to humiliate an aggressor or expose their insecurity.<br /><strong>Warning:</strong> This will burn bridges. Use only when you are ready to end the relationship or silence a troll.
-                            <br /><strong>Disclaimer:</strong> We will not be held liable for any consequences resulting from the use of this mode. Do not use this mode if you have a restraining order awarded against you or engaged in active legal proceedings from the adversary.
-                         </p>
-                      </div>
-
+                        return (
+                          <div key={mode} className={`${meta.container} rounded-lg p-5`}>
+                            <div className={`flex items-center gap-2 mb-2 ${meta.label} font-bold uppercase text-xs tracking-wider`}>
+                              <Icon className="w-4 h-4" /> {mode}
+                            </div>
+                            <p className="text-slate-300 text-sm font-bold mb-1">Best For: {help.bestFor}</p>
+                            <p className="text-slate-400 text-xs leading-relaxed">{renderDescription(help)}</p>
+                          </div>
+                        );
+                      })}
                    </div>
                 </div>
 

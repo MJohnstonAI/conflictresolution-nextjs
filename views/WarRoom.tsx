@@ -1,7 +1,8 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
+import React, { useState, useEffect, useRef, memo, useMemo, useId, useCallback, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import { User, RefreshCw, AlertTriangle, Shield, Scale, Mountain, Flame, ArrowLeft, Home, Copy, Info, Target, Fingerprint, Activity, ChevronLeft, ChevronRight, Download, Eye, EyeOff, Printer, FileText, PlayCircle } from 'lucide-react';
 import { store } from '../services/store';
@@ -13,6 +14,7 @@ import { toast } from '../components/DesignSystem';
 import { DEMO_SCENARIOS } from '../services/demo_scenarios';
 import { setRouteState } from '@/lib/route-state';
 import { getClientAuthHeaders } from '@/lib/client/auth-headers';
+import { getModeTooltipText } from '../lib/mode-help';
 
 const MAX_OPPONENT_MESSAGE_CHARS = 15000;
 const WARN_OPPONENT_MESSAGE_CHARS = 13500;
@@ -302,6 +304,69 @@ const ResponseToneSelector: React.FC<{
     active: boolean; 
     onClick: () => void;
 }> = ({ mode, active, onClick }) => {
+    const tooltipId = useId();
+    const [showTooltip, setShowTooltip] = useState(false);
+    const tooltipTimeoutRef = useRef<number | null>(null);
+    const buttonRef = useRef<HTMLButtonElement | null>(null);
+    const tooltipRef = useRef<HTMLDivElement | null>(null);
+    const [portalReady, setPortalReady] = useState(false);
+    const [tooltipPosition, setTooltipPosition] = useState<{ left: number; top: number } | null>(null);
+    const tooltipText = useMemo(() => getModeTooltipText(mode), [mode]);
+
+    const clearTooltipTimeout = () => {
+        if (tooltipTimeoutRef.current) {
+            window.clearTimeout(tooltipTimeoutRef.current);
+            tooltipTimeoutRef.current = null;
+        }
+    };
+
+    const handleHoverStart = () => {
+        clearTooltipTimeout();
+        tooltipTimeoutRef.current = window.setTimeout(() => setShowTooltip(true), 3000);
+    };
+
+    const handleHoverEnd = () => {
+        clearTooltipTimeout();
+        setShowTooltip(false);
+        setTooltipPosition(null);
+    };
+
+    const updateTooltipPosition = useCallback(() => {
+        if (!buttonRef.current || !tooltipRef.current) return;
+        const buttonRect = buttonRef.current.getBoundingClientRect();
+        const tooltipRect = tooltipRef.current.getBoundingClientRect();
+        const margin = 12;
+        let left = buttonRect.left + buttonRect.width / 2;
+        const minLeft = margin + tooltipRect.width / 2;
+        const maxLeft = window.innerWidth - margin - tooltipRect.width / 2;
+        left = Math.min(Math.max(left, minLeft), maxLeft);
+        setTooltipPosition({ left, top: buttonRect.bottom + 8 });
+    }, []);
+
+    useLayoutEffect(() => {
+        if (!showTooltip) {
+            setTooltipPosition(null);
+            return;
+        }
+        updateTooltipPosition();
+    }, [showTooltip, updateTooltipPosition, mode]);
+
+    useEffect(() => {
+        setPortalReady(true);
+        return () => clearTooltipTimeout();
+    }, []);
+
+    useEffect(() => {
+        if (!showTooltip) return;
+        const handle = () => updateTooltipPosition();
+        window.addEventListener("resize", handle);
+        window.addEventListener("scroll", handle, true);
+        return () => {
+            window.removeEventListener("resize", handle);
+            window.removeEventListener("scroll", handle, true);
+        };
+    }, [showTooltip, updateTooltipPosition]);
+
     const icons = {
         Peacekeeper: Shield,
         Barrister: Scale,
@@ -317,16 +382,47 @@ const ResponseToneSelector: React.FC<{
         "Grey Rock": "bg-slate-500/10 text-slate-300 border-slate-500/50"
     };
 
-    const baseStyle = "flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-bold uppercase tracking-wider transition-all flex-1";
+    const baseStyle = "flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-bold uppercase tracking-wider transition-all w-full";
     const style = active 
         ? `${baseStyle} ${activeStyles[mode]} shadow-sm` 
         : `${baseStyle} border-navy-800 bg-navy-900 text-slate-500 hover:border-navy-700 hover:text-slate-400`;
 
     return (
-        <button onClick={onClick} className={style}>
-            <Icon className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">{mode}</span>
-        </button>
+        <div
+            className="flex-1"
+            onMouseEnter={handleHoverStart}
+            onMouseLeave={handleHoverEnd}
+            onFocus={handleHoverStart}
+            onBlur={handleHoverEnd}
+        >
+            <button
+                ref={buttonRef}
+                onClick={onClick}
+                className={style}
+                aria-describedby={showTooltip ? tooltipId : undefined}
+            >
+                <Icon className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">{mode}</span>
+            </button>
+            {portalReady && showTooltip
+                ? createPortal(
+                    <div
+                        id={tooltipId}
+                        role="tooltip"
+                        ref={tooltipRef}
+                        style={
+                            tooltipPosition
+                                ? { left: tooltipPosition.left, top: tooltipPosition.top }
+                                : { left: 0, top: 0, visibility: "hidden" }
+                        }
+                        className="fixed z-[100] w-72 max-w-[calc(100vw-24px)] -translate-x-1/2 rounded-lg border border-navy-700 bg-navy-950 px-3 py-2 text-[11px] leading-relaxed text-slate-200 shadow-2xl whitespace-pre-line pointer-events-none"
+                    >
+                        {tooltipText}
+                    </div>,
+                    document.body
+                )
+                : null}
+        </div>
     );
 };
 
