@@ -8,6 +8,7 @@ import {
 import { getClientIp, rateLimit, retryAfterSeconds } from "@/lib/server/rate-limit";
 import { requireAiAuth } from "@/lib/server/ai-auth";
 import { requireCaseAccess } from "@/lib/server/ai-case-guard";
+import { consumeSession, refundSession } from "@/lib/server/session-guard";
 
 export const runtime = "nodejs";
 
@@ -58,6 +59,7 @@ export async function POST(request: NextRequest) {
     planType,
     useDeepThinking,
     senderIdentity,
+    roundId,
   } = body || {};
 
   if (planType === "demo") {
@@ -132,6 +134,8 @@ Analyze the input and generate 4 strategic response drafts.
     maxOutputTokens = 4000;
   }
 
+  let sessionConsumed = false;
+
   try {
     const caseGuard = await requireCaseAccess({
       caseId: typeof caseId === "string" ? caseId : null,
@@ -140,6 +144,16 @@ Analyze the input and generate 4 strategic response drafts.
       requireOpen: true,
     });
     if (caseGuard.ok === false) return caseGuard.error;
+
+    const sessionGuard = await consumeSession({
+      userId: authGuard.userId,
+      planType,
+      caseId: typeof caseId === "string" ? caseId : null,
+      roundId: typeof roundId === "string" ? roundId : null,
+      reason: "generation",
+    });
+    if (sessionGuard.ok === false) return sessionGuard.error;
+    sessionConsumed = sessionGuard.consumed;
 
     const modelSlug = await resolveModelSlug(planType, authGuard.token);
 
@@ -232,6 +246,15 @@ ${text}
     const parsed = JSON.parse(jsonString);
     return NextResponse.json({ ...parsed, modelSlug });
   } catch (error: any) {
+    if (sessionConsumed) {
+      await refundSession({
+        userId: authGuard.userId,
+        planType,
+        caseId: typeof caseId === "string" ? caseId : null,
+        roundId: typeof roundId === "string" ? roundId : null,
+        reason: "generation_failed",
+      });
+    }
     if (isOpenRouterError(error)) {
       return NextResponse.json(
         { error: toOpenRouterErrorPayload(error) },

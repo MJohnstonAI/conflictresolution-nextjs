@@ -49,7 +49,7 @@ export const requireCaseAccess = async ({
 
   const { data, error } = await supabaseAdmin
     .from("cases")
-    .select("id, user_id, plan_type, is_closed, rounds_used, rounds_limit")
+    .select("id, user_id, plan_type, is_closed")
     .eq("id", caseId)
     .single();
   if (error || !data) {
@@ -63,12 +63,8 @@ export const requireCaseAccess = async ({
     return { ok: false, error: errorResponse("Plan type mismatch", 403) };
   }
   if (requireOpen) {
-    const roundsLimit = Number(data.rounds_limit);
-    const roundsUsed = Number(data.rounds_used);
-    const limitApplies = Number.isFinite(roundsLimit) && roundsLimit > 0;
-    const usedApplies = Number.isFinite(roundsUsed) && roundsUsed >= 0;
-    if (data.is_closed || (limitApplies && usedApplies && roundsUsed >= roundsLimit)) {
-      return { ok: false, error: errorResponse("Case limit reached", 403) };
+    if (data.is_closed) {
+      return { ok: false, error: errorResponse("Case is closed", 403) };
     }
   }
 

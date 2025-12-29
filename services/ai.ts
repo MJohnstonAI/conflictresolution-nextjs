@@ -6,6 +6,7 @@ import { formatApiErrorMessage, readApiErrorDetails } from "@/lib/client/api-err
 
 interface AnalysisParams {
   caseId?: string;
+  roundId?: string;
   opponentType: OpponentType;
   mode: Mode;
   goal: UserGoal;
