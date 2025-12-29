@@ -1052,13 +1052,26 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         setAnalysisError(null);
 
         try {
+            let caseForAnalysis = activeCase;
             const roundsUsedCount = Math.max(activeCase.roundsUsed, rounds.length);
             if (activeCase.isClosed) throw new Error("This case is closed.");
             const isRerun = !!rerunRoundId;
             const existingIndex = isRerun ? rounds.findIndex((round) => round.id === rerunRoundId) : -1;
             const baseRound = existingIndex >= 0 ? rounds[existingIndex] : null;
-            if (isRerun && !baseRound) {
-                setRerunRoundId(null);
+            if (isRerun) {
+                if (!baseRound) {
+                    setRerunRoundId(null);
+                    throw new Error("Couldn't sync this round. Reload the case file and try again.");
+                }
+                try {
+                    const latestCase = await store.getCase(activeCase.id);
+                    if (latestCase) {
+                        caseForAnalysis = latestCase;
+                        setActiveCase(latestCase);
+                    }
+                } catch (error) {
+                    console.warn("Unable to refresh case context before rerun:", error);
+                }
             }
             const roundId = baseRound?.id ?? crypto.randomUUID();
             const roundIdForAnalysis = baseRound?.id ?? undefined;
@@ -1075,24 +1088,24 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             ).join('\n\n');
 
             const analysis = await analyzeConflict({
-                caseId: activeCase.id,
+                caseId: caseForAnalysis.id,
                 roundId: roundIdForAnalysis,
-                opponentType: activeCase.opponentType,
+                opponentType: caseForAnalysis.opponentType,
                 mode: 'Peacekeeper',
                 goal: 'Hold boundaries',
-                contextSummary: activeCase.note || "",
+                contextSummary: caseForAnalysis.note || "",
                 historyText,
                 currentText: inputText,
-                planType: activeCase.planType,
-                useDeepThinking: activeCase.planType === 'premium',
-                demoScenarioId: activeCase.demoScenarioId,
+                planType: caseForAnalysis.planType,
+                useDeepThinking: caseForAnalysis.planType === 'premium',
+                demoScenarioId: caseForAnalysis.demoScenarioId,
                 roundIndex,
                 senderIdentity: senderName
             });
 
             const newRound: Round = {
                 id: roundId,
-                caseId: activeCase.id,
+                caseId: caseForAnalysis.id,
                 roundNumber,
                 createdAt,
                 opponentText: inputText,
