@@ -133,6 +133,16 @@ export const createSessionGuard = (store: SessionStore | null) => {
 
 const createSupabaseSessionStore = (): SessionStore | null => {
   if (!supabaseAdmin) return null;
+  const resolveRoundId = async (roundId: string | null) => {
+    if (!roundId) return null;
+    const { data, error } = await supabaseAdmin
+      .from("rounds")
+      .select("id")
+      .eq("id", roundId)
+      .limit(1);
+    if (error || !data || data.length === 0) return null;
+    return roundId;
+  };
   return {
     getProfile: async (userId) => {
       const { data, error } = await supabaseAdmin
@@ -144,11 +154,12 @@ const createSupabaseSessionStore = (): SessionStore | null => {
       return data as { is_admin?: boolean };
     },
     consume: async ({ userId, planType, caseId, roundId, reason }) => {
+      const safeRoundId = await resolveRoundId(roundId);
       const { data, error } = await supabaseAdmin.rpc("consume_session", {
         p_user_id: userId,
         p_plan_type: planType,
         p_case_id: caseId,
-        p_round_id: roundId,
+        p_round_id: safeRoundId,
         p_reason: reason,
       });
       if (error) {
@@ -159,11 +170,12 @@ const createSupabaseSessionStore = (): SessionStore | null => {
       return { consumed: !!row?.consumed, remaining: row?.remaining ?? null };
     },
     refund: async ({ userId, planType, caseId, roundId, reason }) => {
+      const safeRoundId = await resolveRoundId(roundId);
       const { error } = await supabaseAdmin.rpc("refund_session", {
         p_user_id: userId,
         p_plan_type: planType,
         p_case_id: caseId,
-        p_round_id: roundId,
+        p_round_id: safeRoundId,
         p_reason: reason,
       });
       if (error) {

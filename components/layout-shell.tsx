@@ -261,10 +261,16 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     let isMounted = true;
     const init = async () => {
       setCurrentTheme(themeService.get());
-      const account = await store.getAccount();
-      if (!isMounted) return;
-      setIsAdmin(account.isAdmin);
-      if (!account.isAdmin) return;
+      try {
+        const account = await store.getAccount();
+        if (!isMounted) return;
+        setIsAdmin(account.isAdmin);
+        if (!account.isAdmin) return;
+      } catch (error) {
+        if (!isMounted) return;
+        setModelsError("Couldn't connect. Retry.");
+        return;
+      }
 
       setModelsLoading(true);
       setModelsError(null);
@@ -519,11 +525,16 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
       setSession(nextSession);
     });
 
-    store.getAccount().then((acc) => {
-      setPremiumSessions(acc.premiumSessions);
-      setStandardSessions(acc.standardSessions);
-      if (acc.theme) themeService.set(acc.theme);
-    });
+    store.getAccount()
+      .then((acc) => {
+        setPremiumSessions(acc.premiumSessions);
+        setStandardSessions(acc.standardSessions);
+        if (acc.theme) themeService.set(acc.theme);
+      })
+      .catch(() => {
+        setPremiumSessions(0);
+        setStandardSessions(0);
+      });
 
     return () => subscription.unsubscribe();
   }, [pathname]);

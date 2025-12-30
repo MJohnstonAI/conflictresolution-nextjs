@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Badge } from "@/components/UI";
 import { Combobox } from "@/components/DesignSystem";
 import { toast } from "@/components/DesignSystem";
 import { store } from "@/services/store";
+import { supabase } from "@/services/supabase";
 import { Case, OpponentType, PlanType, UserAccount } from "@/types";
 import { formatApiErrorMessage, readApiErrorDetails } from "@/lib/client/api-errors";
 import {
@@ -19,7 +20,7 @@ import {
   User,
   Zap,
 } from "lucide-react";
-import { consumeRouteState } from "@/lib/route-state";
+import { consumeRouteState, setRouteState } from "@/lib/route-state";
 import { getClientAuthHeaders } from "@/lib/client/auth-headers";
 
 const CONTEXT_LIMIT_CHARS = 40000;
@@ -89,7 +90,11 @@ const CaseSetupModal: React.FC<CaseSetupModalProps> = ({ onClose, onConfirm, opp
   const [modelsError, setModelsError] = useState<string | null>(null);
 
   useEffect(() => {
-    store.getAccount().then(setAccount);
+    store.getAccount()
+      .then(setAccount)
+      .catch(() => {
+        setModelsError("Couldn't connect. Retry.");
+      });
   }, []);
 
   useEffect(() => {
@@ -231,21 +236,109 @@ const Home: React.FC = () => {
   const [customAdversary, setCustomAdversary] = useState("");
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
+  const [rerunCaseId, setRerunCaseId] = useState<string | null>(null);
+  const [rerunRoundId, setRerunRoundId] = useState<string | null>(null);
+  const [isUpdatingCase, setIsUpdatingCase] = useState(false);
+  const [authMode, setAuthMode] = useState<'loading' | 'signed_in' | 'signed_out' | 'error'>('loading');
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
 
-  const opponentOptions = getSortedOpponentOptions();
+  const opponentOptions = useMemo(() => getSortedOpponentOptions(), []);
+
+  const refreshAuth = async () => {
+    setAuthNotice(null);
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) {
+        setAuthMode('error');
+        setAuthNotice("Couldn't connect. Retry.");
+        return;
+      }
+      if (!user) {
+        setAuthMode('signed_out');
+        return;
+      }
+      const acc = await store.getAccount();
+      if (acc.name) setUserName(acc.name);
+      setAuthMode('signed_in');
+    } catch {
+      setAuthMode('error');
+      setAuthNotice("Couldn't connect. Retry.");
+    }
+  };
 
   useEffect(() => {
-    const state = consumeRouteState<{ templateText?: string; opponentType?: OpponentType }>("/");
-    if (state?.templateText) setText(state.templateText);
-    if (state?.opponentType) setOpponent(state.opponentType);
+    const state = consumeRouteState<{
+      templateText?: string;
+      opponentType?: OpponentType;
+      rerunCaseId?: string;
+      rerunRoundId?: string;
+    }>("/");
+    if (state?.rerunCaseId) {
+      setRerunCaseId(state.rerunCaseId);
+      if (state?.rerunRoundId) setRerunRoundId(state.rerunRoundId);
+      if (state?.templateText) setText(state.templateText);
+      if (state?.opponentType) setOpponent(state.opponentType);
+    } else {
+      if (state?.templateText) setText(state.templateText);
+      if (state?.opponentType) setOpponent(state.opponentType);
+    }
 
-    store.getAccount().then((acc) => {
-      if (acc.name) setUserName(acc.name);
-    });
+    refreshAuth();
   }, []);
 
-  const handleAnalyzeStart = () => {
+  useEffect(() => {
+    refreshAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!rerunCaseId) return;
+    const loadCase = async () => {
+      const existing = await store.getCase(rerunCaseId);
+      if (!existing) return;
+      setText(existing.note || "");
+      if (opponentOptions.includes(existing.opponentType as OpponentType)) {
+        setOpponent(existing.opponentType as OpponentType);
+        setCustomAdversary("");
+      } else {
+        setOpponent("Other");
+        setCustomAdversary(existing.opponentType);
+      }
+    };
+    loadCase();
+  }, [rerunCaseId, opponentOptions]);
+
+  const handleAnalyzeStart = async () => {
     if (!text.trim()) return;
+    if (authMode === 'signed_out') {
+      router.push("/auth");
+      return;
+    }
+    if (authMode === 'error') {
+      toast("Couldn't connect. Retry.", "error");
+      return;
+    }
+    if (rerunCaseId) {
+      if (isUpdatingCase) return;
+      setIsUpdatingCase(true);
+      try {
+        let finalOpponent = opponent;
+        if (opponent === "Other" && customAdversary.trim()) finalOpponent = customAdversary.trim();
+        const updatedTitle = `${finalOpponent} Conflict Case`;
+        await store.updateCaseDetails(rerunCaseId, {
+          opponentType: finalOpponent,
+          title: updatedTitle,
+          note: text.slice(0, CONTEXT_LIMIT_CHARS),
+        });
+        setRouteState(`/case/${rerunCaseId}`, { rerunRoundId });
+        router.push(`/case/${rerunCaseId}`);
+      } catch (error) {
+        console.error("Failed to update case before rerun:", error);
+        toast("Couldn't update this case. Retry.", "error");
+      } finally {
+        setIsUpdatingCase(false);
+      }
+      return;
+    }
     setShowPlanModal(true);
   };
 
@@ -273,7 +366,19 @@ const Home: React.FC = () => {
   };
 
   const isAnalyzeDisabled =
-    isSummarizingContext || !text.trim() || (opponent === "Other" && !customAdversary.trim());
+    isSummarizingContext ||
+    isUpdatingCase ||
+    authMode === 'error' ||
+    authMode === 'loading' ||
+    !text.trim() ||
+    (opponent === "Other" && !customAdversary.trim());
+
+  const startLabel =
+    authMode === 'signed_out'
+      ? "Sign In to Start"
+      : isUpdatingCase
+        ? "Updating Case..."
+        : "Start Analysis";
 
   const summarizeContextToLimit = async (rawText: string) => {
     setIsSummarizingContext(true);
@@ -359,6 +464,24 @@ const Home: React.FC = () => {
         </span>
       </div>
 
+      {authNotice && (
+        <div className="mx-6 md:mx-10 mt-4 bg-rose-500/10 border border-rose-500/30 p-4 rounded-xl flex items-center justify-between gap-4 animate-fade-in">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-rose-400" />
+            <div>
+              <p className="text-sm font-bold text-slate-100">{authNotice}</p>
+              <p className="text-xs text-slate-400">Check your connection and retry.</p>
+            </div>
+          </div>
+          <button
+            onClick={refreshAuth}
+            className="px-3 py-1.5 bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-rose-600 transition-all"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       <div className="pt-8 pb-6 text-center space-y-3 px-6 md:text-left md:px-10">
         <h1 className="text-3xl tracking-tight text-slate-100 md:text-4xl">
           <span className="font-serif font-bold text-gold-400">Start New Case</span>
@@ -432,9 +555,14 @@ const Home: React.FC = () => {
               disabled={isAnalyzeDisabled}
               className="w-full bg-navy-800 hover:bg-navy-700 text-slate-100 font-medium text-lg py-5 rounded-xl border border-navy-700 shadow-lg flex items-center justify-center gap-3 transition-all disabled:opacity-50"
             >
-              <span className="font-serif italic text-gold-400">Start Analysis</span>
+              <span className="font-serif italic text-gold-400">{startLabel}</span>
               <ArrowRight className="w-5 h-5 text-slate-300" />
             </button>
+            {authMode === 'signed_out' && (
+              <div className="pt-3 text-xs text-slate-400 text-center">
+                Sign in to start a real case. Demo conflicts are available above.
+              </div>
+            )}
           </div>
         </div>
       </div>

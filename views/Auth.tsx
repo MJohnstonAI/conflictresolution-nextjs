@@ -127,12 +127,14 @@ export const Auth: React.FC = () => {
       let msg = err.message || "Authentication system failure.";
       
       if (msg.toLowerCase().includes("invalid login credentials")) {
-        msg = "Access Denied: Incorrect email or password.";
+        msg = "No account found or incorrect password. Register a new account or use Forgot Password.";
       } else if (msg.toLowerCase().includes("email not confirmed")) {
         msg = "Account Inactive: Verification required.";
         setNeedsVerification(true);
       } else if (msg.toLowerCase().includes("user already registered")) {
         msg = "Protocol Error: This identity is already active. Please sign in.";
+      } else if (msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("network")) {
+        msg = "Couldn't connect. Check your connection and retry.";
       }
       
       setError(msg);

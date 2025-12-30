@@ -5,44 +5,39 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Case, UserAccount } from '../types';
 import { store } from '../services/store';
+import { supabase } from '../services/supabase';
 import { exportService } from '../services/export';
 import { Button, Badge } from '../components/UI';
 import { Skeleton, DropdownMenu, AlertDialog, toast } from '../components/DesignSystem';
-import { Archive, Search, Trash2, Pencil, Printer, MoreVertical, FileText, AlertCircle } from 'lucide-react';
-
-const EditCaseModal: React.FC<any> = ({ c, onClose, onSave }) => {
-  const [title, setTitle] = useState(c.title);
-  const [note, setNote] = useState(c.note || "");
-  const handleSave = () => onSave({ ...c, title, note });
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm animate-fade-in">
-       <div className="bg-navy-900 border border-navy-800 rounded-2xl w-full max-w-sm p-6 space-y-4">
-          <h3 className="font-bold text-slate-100">Edit Case</h3>
-          <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-navy-950 border border-navy-800 rounded p-2 text-slate-100" />
-          <textarea value={note} onChange={e => setNote(e.target.value)} className="w-full bg-navy-950 border border-navy-800 rounded p-2 text-slate-100" />
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleSave}>Save</Button>
-          </div>
-       </div>
-    </div>
-  );
-};
+import { Archive, Search, Trash2, Printer, MoreVertical, FileText, AlertCircle } from 'lucide-react';
 
 export const Vault: React.FC = () => {
     const router = useRouter();
     const [cases, setCases] = useState<Case[]>([]);
     const [loading, setLoading] = useState(true);
-    const [editingCase, setEditingCase] = useState<Case | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [account, setAccount] = useState<UserAccount>({ premiumSessions: 0, standardSessions: 0, totalCasesCreated: 0, isAdmin: false, role: 'demo' });
     const [deleteId, setDeleteId] = useState<string | null>(null);
-    const [syncError, setSyncError] = useState(false);
+    const [syncError, setSyncError] = useState<string | null>(null);
+    const [authState, setAuthState] = useState<'loading' | 'signed_out' | 'signed_in' | 'error'>('loading');
   
     const fetchData = async () => {
         setLoading(true);
-        setSyncError(false);
+        setSyncError(null);
+        setAuthState('loading');
         try {
+            const { data: { user }, error: authError } = await supabase.auth.getUser();
+            if (authError) {
+                setAuthState('error');
+                setLoading(false);
+                return;
+            }
+            if (!user) {
+                setAuthState('signed_out');
+                setLoading(false);
+                return;
+            }
+            setAuthState('signed_in');
             const [fetchedCases, fetchedAccount] = await Promise.all([
                 store.getCases(),
                 store.getAccount()
@@ -52,12 +47,12 @@ export const Vault: React.FC = () => {
             
             // If the role is still 'pending', something went wrong with the trigger
             if (fetchedAccount.role === 'pending') {
-                setSyncError(true);
+                setSyncError("Couldn't connect. Retry.");
             }
         } catch (e) {
             console.error("Vault Data Sync Error:", e);
-            setSyncError(true);
-            toast("Database synchronization delay. Some features may be restricted.", "error");
+            setSyncError("Couldn't connect. Retry.");
+            toast("Couldn't connect. Retry.", "error");
         } finally {
             setLoading(false);
         }
@@ -83,14 +78,6 @@ export const Vault: React.FC = () => {
         setDeleteId(null);
     };
 
-    const handleEdit = (c: Case) => { setEditingCase(c); };
-    
-    const handleSaveEdit = async (updated: Case) => { 
-        await store.saveCase(updated); 
-        fetchData(); 
-        setEditingCase(null); 
-        toast("Case updated.", "success");
-    };
 
     const handleExportMarkdown = async (c: Case) => {
         toast("Generating markdown file...", "info");
@@ -120,23 +107,57 @@ export const Vault: React.FC = () => {
         c.opponentType.toLowerCase().includes(searchQuery.toLowerCase())
     );
   
+    if (authState === 'signed_out') {
+        return (
+            <div className="flex flex-col w-full h-full animate-fade-in pb-20 md:pb-0 px-6 md:px-10">
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-300 min-h-[400px] gap-4">
+                    <Archive className="w-12 h-12 opacity-30" />
+                    <div className="text-center space-y-2">
+                        <p className="text-sm font-semibold text-slate-100">Sign in to access your vault.</p>
+                        <p className="text-xs text-slate-400">Demo cases are available in Demo Mode.</p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <Button onClick={() => router.push('/auth')} className="bg-gold-600 text-navy-950 font-bold">Sign In / Join</Button>
+                        <Button variant="ghost" onClick={() => router.push('/demo')} className="text-blue-300">Try Demo Mode</Button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (authState === 'error') {
+        return (
+            <div className="flex flex-col w-full h-full animate-fade-in pb-20 md:pb-0 px-6 md:px-10">
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-300 min-h-[400px] gap-4">
+                    <AlertCircle className="w-12 h-12 text-rose-400" />
+                    <div className="text-center space-y-2">
+                        <p className="text-sm font-semibold text-slate-100">Couldn't connect. Retry.</p>
+                        <p className="text-xs text-slate-400">Check your connection and try again.</p>
+                    </div>
+                    <Button onClick={fetchData} className="bg-navy-900 border border-navy-700 text-slate-200">Retry</Button>
+                </div>
+            </div>
+        );
+    }
+
     return (
       <div className="flex flex-col w-full h-full animate-fade-in pb-20 md:pb-0 px-6 md:px-10">
         
-        {syncError && (
+        {syncError && authState === 'signed_in' && (
             <div className="mt-6 bg-rose-500/10 border border-rose-500/30 p-4 rounded-xl flex items-center justify-between gap-4 animate-fade-in">
                 <div className="flex items-center gap-3">
                     <AlertCircle className="w-5 h-5 text-rose-500" />
                     <div>
-                        <p className="text-sm font-bold text-slate-100">Account Sync Warning</p>
-                        <p className="text-xs text-slate-400">Your profile is taking longer than expected to initialize. Sessions may not show correctly.</p>
+                        <p className="text-sm font-bold text-slate-100">Connection Issue</p>
+                        <p className="text-xs text-slate-400">{syncError}</p>
                     </div>
                 </div>
                 <button onClick={fetchData} className="px-3 py-1.5 bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-rose-600 transition-all">
-                    Retry Sync
+                    Retry
                 </button>
             </div>
         )}
+
 
         <div className="pt-10 pb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
@@ -204,7 +225,6 @@ export const Vault: React.FC = () => {
                              items={[
                                { label: "Export Markdown", icon: FileText, onClick: () => handleExportMarkdown(c) },
                                { label: "Print / PDF", icon: Printer, onClick: () => handleExportPDF(c) },
-                               { label: "Edit Details", icon: Pencil, onClick: () => handleEdit(c) },
                                { label: "Delete Case", icon: Trash2, onClick: () => setDeleteId(c.id), variant: 'danger' }
                              ]}
                           />
@@ -261,8 +281,6 @@ export const Vault: React.FC = () => {
             })}
           </div>
         )}
-        
-        {editingCase && <EditCaseModal c={editingCase} onClose={() => setEditingCase(null)} onSave={handleSaveEdit} />}
         
         <AlertDialog 
            open={!!deleteId} 

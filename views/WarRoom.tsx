@@ -4,15 +4,16 @@
 import React, { useState, useEffect, useRef, memo, useMemo, useId, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
-import { User, RefreshCw, AlertTriangle, Shield, Scale, Mountain, Flame, ArrowLeft, Home, Copy, Info, Target, Fingerprint, Activity, ChevronLeft, ChevronRight, Download, Eye, EyeOff, Printer, FileText, PlayCircle } from 'lucide-react';
+import { User, RefreshCw, AlertTriangle, AlertCircle, Shield, Scale, Mountain, Flame, ArrowLeft, Home, Copy, Info, Target, Fingerprint, Activity, ChevronLeft, ChevronRight, Download, Eye, EyeOff, Printer, FileText, PlayCircle } from 'lucide-react';
 import { store } from '../services/store';
+import { supabase } from '../services/supabase';
 import { analyzeConflict, reviseResponse, summarizeCase } from '../services/ai';
 import { exportService } from '../services/export';
 import { Case, Round, Mode, UserAccount } from '../types';
 import { Button, Badge, RiskGauge } from '../components/UI';
 import { toast } from '../components/DesignSystem';
 import { DEMO_SCENARIOS } from '../services/demo_scenarios';
-import { setRouteState } from '@/lib/route-state';
+import { consumeRouteState, setRouteState } from '@/lib/route-state';
 import { getClientAuthHeaders } from '@/lib/client/auth-headers';
 import { getModeTooltipText } from '../lib/mode-help';
 
@@ -122,6 +123,8 @@ const InputSection: React.FC<InputSectionProps> = memo(({
         !!analysisError && /Error (429|502|503|504)|timed out|timeout/i.test(analysisError);
     const isSessionError =
         !!analysisError && /No sessions remaining|Error 402/i.test(analysisError);
+    const sessionPlanLabel = activeCase.planType === "premium" ? "Premium" : "Standard";
+    const sessionMessage = `You've used all your ${sessionPlanLabel} mediation Sessions. To continue, purchase an extension.`;
     const requestIdMatch = analysisError?.match(/Request ID:\s*([^\s]+)/i);
     const requestId = requestIdMatch?.[1];
 
@@ -311,7 +314,7 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                     <div className="flex items-start gap-2 flex-1">
                         <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
                         <div>
-                            <div>{analysisError}</div>
+                            <div>{isSessionError ? sessionMessage : analysisError}</div>
                             {requestId && (
                                 <div className="text-[10px] font-mono text-rose-300/80 mt-1">
                                     Request ID: {requestId}
@@ -335,7 +338,7 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                             onClick={() => router.push("/unlock/credits")}
                             className="px-3 py-2 rounded-lg border border-rose-500/40 text-rose-100 hover:text-white hover:border-rose-400 transition-all text-xs font-bold uppercase tracking-widest focus-visible:ring-2 focus-visible:ring-rose-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
                         >
-                            Get Sessions
+                            View Session Packages
                         </button>
                     )}
                 </div>
@@ -814,6 +817,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const [allCases, setAllCases] = useState<Case[]>([]);
     const [account, setAccount] = useState<UserAccount | null>(null);
     const [analysisReadyMap, setAnalysisReadyMap] = useState<Record<string, boolean>>({});
+    const [authMode, setAuthMode] = useState<'loading' | 'signed_in' | 'demo' | 'signed_out' | 'error'>('loading');
     
     // View State
     const [viewIndex, setViewIndex] = useState<number>(0); // 0 = Round 1, rounds.length = New Input
@@ -826,6 +830,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const [analysisError, setAnalysisError] = useState<string | null>(null);
     const [isStartingPart2, setIsStartingPart2] = useState(false);
     const analyzeInFlight = useRef(false);
+    const [pendingRerunRoundId, setPendingRerunRoundId] = useState<string | null>(null);
     const demoScenario = useMemo(
         () => (activeCase?.demoScenarioId ? DEMO_SCENARIOS[activeCase.demoScenarioId] : undefined),
         [activeCase?.demoScenarioId]
@@ -837,13 +842,42 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         if (!targetId) return;
         setLoading(true);
         setSyncError(null);
+        setAuthMode('loading');
         try {
-            const [c, r, cases, acc] = await Promise.all([
-                store.getCase(targetId),
-                store.getRounds(targetId),
-                store.getCases(),
-                store.getAccount()
-            ]);
+            const { data: { user }, error: authError } = await supabase.auth.getUser();
+            if (authError) {
+                setAuthMode('error');
+                setLoading(false);
+                return;
+            }
+
+            let c: Case | undefined;
+            let r: Round[] = [];
+            let cases: Case[] = [];
+            let acc: UserAccount | null = null;
+
+            if (!user) {
+                c = await store.getCase(targetId);
+                if (!c || c.planType !== 'demo') {
+                    setAuthMode('signed_out');
+                    setLoading(false);
+                    return;
+                }
+                [r, cases, acc] = await Promise.all([
+                    store.getRounds(targetId),
+                    store.getCases(),
+                    store.getAccount()
+                ]);
+                setAuthMode('demo');
+            } else {
+                [c, r, cases, acc] = await Promise.all([
+                    store.getCase(targetId),
+                    store.getRounds(targetId),
+                    store.getCases(),
+                    store.getAccount()
+                ]);
+                setAuthMode('signed_in');
+            }
 
             if (!c) { router.push('/'); return; }
 
@@ -856,7 +890,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 }
             }
 
-            if (r.length === 0 && caseData.roundsUsed > 0) {
+            const roundsData = r;
+            if (roundsData.length === 0 && caseData.roundsUsed > 0) {
                 setActiveCase(caseData);
                 setRounds([]);
                 setAllCases(cases);
@@ -868,14 +903,14 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
 
             setAllCases(cases);
             setActiveCase(caseData);
-            setRounds(r);
+            setRounds(roundsData);
             setAccount(acc);
             setLoading(false);
             
             // Set initial view to the latest round if exists
-            if (r.length > 0) {
-                setViewIndex(r.length - 1); 
-                if (r[r.length-1].senderIdentity) setSenderName(r[r.length-1].senderIdentity || "");
+            if (roundsData.length > 0) {
+                setViewIndex(roundsData.length - 1); 
+                if (roundsData[roundsData.length-1].senderIdentity) setSenderName(roundsData[roundsData.length-1].senderIdentity || "");
             } else {
                 setViewIndex(0); // Input mode (Round 1)
             }
@@ -959,6 +994,26 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             setRerunRoundId(null);
         }
     }, [viewIndex, rounds.length, rerunRoundId]);
+
+    useEffect(() => {
+        if (!activeCase) return;
+        const state = consumeRouteState<{ rerunRoundId?: string }>(`/case/${activeCase.id}`);
+        if (state?.rerunRoundId) {
+            setPendingRerunRoundId(state.rerunRoundId);
+        }
+    }, [activeCase?.id]);
+
+    useEffect(() => {
+        if (!pendingRerunRoundId) return;
+        const targetRound = rounds.find((round) => round.id === pendingRerunRoundId);
+        if (!targetRound) return;
+        setRerunRoundId(targetRound.id);
+        setInputText(targetRound.opponentText || "");
+        setSenderName(targetRound.senderIdentity || "");
+        setViewIndex(rounds.length);
+        setAnalysisError(null);
+        setPendingRerunRoundId(null);
+    }, [pendingRerunRoundId, rounds]);
 
     // Create a mapping for sequential case numbers based on chronological order (Replicated from Vault)
     const caseNumberMap = useMemo(() => {
@@ -1117,8 +1172,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 ...analysis
             };
 
-            await store.saveRound(newRound);
             if (baseRound && existingIndex >= 0) {
+                await store.updateRound(newRound);
                 const updatedRounds = [...rounds];
                 updatedRounds[existingIndex] = newRound;
                 setRounds(updatedRounds);
@@ -1127,6 +1182,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 setViewIndex(existingIndex);
                 toast("Session updated.", "success");
             } else {
+                await store.saveRound(newRound);
                 const updatedCase = { ...activeCase, roundsUsed: roundsUsedCount + 1 };
                 await store.saveCase(updatedCase);
                 
@@ -1143,7 +1199,13 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         } catch (e: unknown) {
             console.error(e);
             const message =
-                e instanceof Error ? e.message : typeof e === "string" ? e : "Session failed.";
+                e instanceof Error
+                    ? e.message
+                    : typeof e === "string"
+                      ? e
+                      : typeof e === "object" && e && "message" in e
+                        ? String((e as { message?: string }).message || "Session failed.")
+                        : "Session failed.";
             setAnalysisError(message);
         } finally {
             setIsAnalyzing(false);
@@ -1189,14 +1251,16 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     };
 
     const startRerun = (round: Round) => {
-        if (!round) return;
-        const confirmed = window.confirm("Re-running this round will consume 1 Session. Continue?");
+        if (!round || !activeCase) return;
+        const confirmed = window.confirm("Edit this round and re-run? A Session is used when you run again.");
         if (!confirmed) return;
-        setInputText(round.opponentText || "");
-        setSenderName(round.senderIdentity || "");
-        setRerunRoundId(round.id);
-        setViewIndex(rounds.length);
-        setAnalysisError(null);
+        setRouteState("/", {
+            rerunCaseId: activeCase.id,
+            rerunRoundId: round.id,
+            opponentType: activeCase.opponentType,
+            templateText: activeCase.note || ""
+        });
+        router.push("/");
     };
 
     const goToNext = () => {
@@ -1257,6 +1321,48 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             <div className="flex flex-col items-center justify-center h-screen bg-navy-950 gap-3 text-slate-400">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold-500"></div>
                 <div className="text-xs font-mono uppercase tracking-widest">Loading case file...</div>
+            </div>
+        );
+    }
+
+    if (authMode === 'signed_out') {
+        return (
+            <div className="flex flex-col items-center justify-center h-screen bg-navy-950 gap-4 text-slate-300 px-6 text-center">
+                <Shield className="w-12 h-12 text-slate-500" />
+                <div className="text-sm font-semibold text-slate-100">Sign in to access this case.</div>
+                <div className="text-xs text-slate-400">Demo conflicts are available in Demo Mode.</div>
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                        type="button"
+                        onClick={() => router.push("/auth")}
+                        className="px-4 py-2 rounded-lg bg-gold-600 text-navy-950 font-bold"
+                    >
+                        Sign In / Join
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => router.push("/demo")}
+                        className="px-4 py-2 rounded-lg bg-navy-900 border border-navy-800 text-blue-300"
+                    >
+                        Try Demo Mode
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    if (authMode === 'error') {
+        return (
+            <div className="flex flex-col items-center justify-center h-screen bg-navy-950 gap-4 text-slate-300 px-6 text-center">
+                <AlertCircle className="w-12 h-12 text-rose-400" />
+                <div className="text-sm font-semibold">Couldn't connect. Retry.</div>
+                <button
+                    type="button"
+                    onClick={loadCaseFile}
+                    className="px-4 py-2 rounded-lg bg-navy-900 border border-navy-800 hover:border-gold-500/40 text-xs font-bold uppercase tracking-widest text-gold-400"
+                >
+                    Retry
+                </button>
             </div>
         );
     }

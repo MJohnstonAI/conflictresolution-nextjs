@@ -128,7 +128,7 @@ const mapRoundFromDB = (row: any): Round => {
     caseId: row.case_id,
     roundNumber: row.round_number,
     createdAt: row.created_at,
-    opponentText: row.opponent_text || "",
+    opponentText: row.opponent_text_encrypted || "",
     senderIdentity: row.sender_identity,
     selectedMode: row.selected_mode,
     // Unpack JSONB analysis_data
@@ -214,7 +214,8 @@ export const store = {
   
   getAccount: async (): Promise<UserAccount> => {
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
         
         // DEMO / GUEST USER
         if (!user) {
@@ -267,10 +268,11 @@ export const store = {
         }
 
         // 3. Get total cases count for stats
-        const { count } = await supabase
+        const { count, error: countError } = await supabase
             .from('cases')
             .select('*', { count: 'exact', head: true })
             .eq('user_id', user.id);
+        if (countError) throw countError;
 
         const premiumSessions =
           typeof data?.premium_sessions === 'number'
@@ -286,13 +288,11 @@ export const store = {
         const isAdmin = !!data?.is_admin || isHardcodedAdmin;
         const isTrial = !!data?.is_trial; 
         
-        let role: UserRole = 'pending';
+        let role: UserRole = 'paid';
         if (isAdmin) {
           role = 'admin';
         } else if (isTrial) {
           role = 'trial';
-        } else if (premiumSessions > 0 || standardSessions > 0) {
-          role = 'paid';
         }
 
         return {
@@ -305,22 +305,15 @@ export const store = {
           theme: data?.theme as Theme 
         };
     } catch (e) {
-        console.warn("Auth sync interrupted, falling back to local guest state.");
-        const sessions = getLocalSessionBalance();
-        const localCases = getLocal(LS_KEYS.CASES).length;
-        return { 
-          premiumSessions: sessions.premium, 
-          standardSessions: sessions.standard,
-          totalCasesCreated: localCases, 
-          isAdmin: false,
-          role: 'demo' 
-        };
+        console.warn("Account sync failed:", e);
+        throw e;
     }
   },
 
   updateUserTheme: async (theme: Theme): Promise<void> => {
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
         if (user) {
             await supabase
                 .from('profiles')
@@ -333,12 +326,15 @@ export const store = {
   },
 
   addSessions: async (type: 'standard' | 'premium', amount: number): Promise<void> => {
+    let isGuest = false;
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
         const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_SESSIONS : LS_KEYS.STANDARD_SESSIONS;
         const dbCol = type === 'premium' ? 'premium_sessions' : 'standard_sessions';
 
         if (!user) {
+            isGuest = true;
             const current = parseInt(localStorage.getItem(lsKey) || '0');
             localStorage.setItem(lsKey, (current + amount).toString());
             return;
@@ -352,9 +348,64 @@ export const store = {
           .update({ [dbCol]: current + amount })
           .eq('id', user.id);
     } catch (e) {
+        if (!isGuest) throw e;
         const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_SESSIONS : LS_KEYS.STANDARD_SESSIONS;
         const current = parseInt(localStorage.getItem(lsKey) || '0');
         localStorage.setItem(lsKey, (current + amount).toString());
+    }
+  },
+
+  updateCaseDetails: async (
+    caseId: string,
+    updates: { opponentType: string; title: string; note: string }
+  ): Promise<void> => {
+    let isGuest = false;
+    try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+
+        if (!user) {
+            isGuest = true;
+            const cases = getLocal<Case>(LS_KEYS.CASES);
+            const index = cases.findIndex(c => c.id === caseId);
+            if (index >= 0) {
+                cases[index] = {
+                    ...cases[index],
+                    opponentType: updates.opponentType,
+                    title: updates.title,
+                    note: updates.note
+                };
+                setLocal(LS_KEYS.CASES, cases);
+            }
+            return;
+        }
+
+        const { data, error } = await supabase
+          .from('cases')
+          .update({
+              opponent_type: updates.opponentType,
+              title: updates.title,
+              note: updates.note || null
+          })
+          .eq('id', caseId)
+          .select('id');
+        if (error) throw error;
+        if (!data || data.length === 0) {
+            throw new Error("Case not found");
+        }
+    } catch (e) {
+        if (!isGuest) throw e;
+        const cases = getLocal<Case>(LS_KEYS.CASES);
+        const index = cases.findIndex(c => c.id === caseId);
+        if (index >= 0) {
+            cases[index] = {
+                ...cases[index],
+                opponentType: updates.opponentType,
+                title: updates.title,
+                note: updates.note
+            };
+            setLocal(LS_KEYS.CASES, cases);
+        }
     }
   },
   
@@ -418,10 +469,13 @@ export const store = {
   },
 
   saveCase: async (newCase: Case): Promise<void> => {
+    let isGuest = false;
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
         
         if (!user) {
+            isGuest = true;
             const cases = getLocal<Case>(LS_KEYS.CASES);
             const index = cases.findIndex(c => c.id === newCase.id);
             if (index >= 0) cases[index] = newCase;
@@ -446,6 +500,7 @@ export const store = {
         const { error } = await supabase.from('cases').upsert(payload);
         if (error) throw error;
     } catch (e) {
+        if (!isGuest) throw e;
         const cases = getLocal<Case>(LS_KEYS.CASES);
         const index = cases.findIndex(c => c.id === newCase.id);
         if (index >= 0) cases[index] = newCase;
@@ -455,10 +510,13 @@ export const store = {
   },
 
   deleteCase: async (id: string): Promise<void> => {
+    let isGuest = false;
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
         
         if (!user) {
+            isGuest = true;
             const cases = getLocal<Case>(LS_KEYS.CASES).filter(c => c.id !== id);
             setLocal(LS_KEYS.CASES, cases);
             const rounds = getLocal<Round>(LS_KEYS.ROUNDS).filter(r => r.caseId !== id);
@@ -469,6 +527,7 @@ export const store = {
         const { error } = await supabase.from('cases').delete().eq('id', id);
         if (error) throw error;
     } catch (e) {
+        if (!isGuest) throw e;
         const cases = getLocal<Case>(LS_KEYS.CASES).filter(c => c.id !== id);
         setLocal(LS_KEYS.CASES, cases);
     }
@@ -505,11 +564,51 @@ export const store = {
     }
   },
 
-  saveRound: async (newRound: Round): Promise<void> => {
+  updateCaseNote: async (caseId: string, note: string): Promise<void> => {
+    let isGuest = false;
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+
+        if (!user) {
+            isGuest = true;
+            const cases = getLocal<Case>(LS_KEYS.CASES);
+            const index = cases.findIndex(c => c.id === caseId);
+            if (index >= 0) {
+                cases[index] = { ...cases[index], note };
+                setLocal(LS_KEYS.CASES, cases);
+            }
+            return;
+        }
+
+        const { data, error } = await supabase
+          .from('cases')
+          .update({ note: note || null })
+          .eq('id', caseId)
+          .select('id');
+        if (error) throw error;
+        if (!data || data.length === 0) {
+            throw new Error("Case not found");
+        }
+    } catch (e) {
+        if (!isGuest) throw e;
+        const cases = getLocal<Case>(LS_KEYS.CASES);
+        const index = cases.findIndex(c => c.id === caseId);
+        if (index >= 0) {
+            cases[index] = { ...cases[index], note };
+            setLocal(LS_KEYS.CASES, cases);
+        }
+    }
+  },
+
+  saveRound: async (newRound: Round): Promise<void> => {
+    let isGuest = false;
+    try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
         
         if (!user) {
+            isGuest = true;
             const rounds = getLocal<Round>(LS_KEYS.ROUNDS);
             const index = rounds.findIndex(r => r.id === newRound.id);
             if (index >= 0) rounds[index] = newRound;
@@ -539,7 +638,7 @@ export const store = {
             user_id: user.id,
             round_number: newRound.roundNumber,
             // FIXED: Using corrected property names from Round interface
-            opponent_text: newRound.opponentText || "",
+            opponent_text_encrypted: newRound.opponentText || "",
             sender_identity: newRound.senderIdentity || null,
             selected_mode: newRound.selectedMode,
             analysis_data: analysisData
@@ -548,11 +647,71 @@ export const store = {
         const { error } = await supabase.from('rounds').upsert(payload);
         if (error) throw error;
     } catch (e) {
+        if (!isGuest) throw e;
         const rounds = getLocal<Round>(LS_KEYS.ROUNDS);
         const index = rounds.findIndex(r => r.id === newRound.id);
         if (index >= 0) rounds[index] = newRound;
         else rounds.push(newRound);
         setLocal(LS_KEYS.ROUNDS, rounds);
+    }
+  },
+
+  updateRound: async (newRound: Round): Promise<void> => {
+    let isGuest = false;
+    try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+
+        if (!user) {
+            isGuest = true;
+            const rounds = getLocal<Round>(LS_KEYS.ROUNDS);
+            const index = rounds.findIndex(r => r.id === newRound.id);
+            if (index >= 0) {
+                rounds[index] = newRound;
+                setLocal(LS_KEYS.ROUNDS, rounds);
+            }
+            return;
+        }
+
+        const analysisData = {
+            vibeCheck: newRound.vibeCheck,
+            confidenceScore: newRound.confidenceScore,
+            confidenceExplanation: newRound.confidenceExplanation,
+            legalRiskScore: newRound.legalRiskScore,
+            legalRiskExplanation: newRound.legalRiskExplanation,
+            detectedFallacies: newRound.detectedFallacies,
+            analysisSummary: newRound.analysisSummary,
+            responses: newRound.responses,
+            expertInsights: newRound.expertInsights,
+            userGoal: newRound.userGoal,
+            rerollsUsed: newRound.rerollsUsed,
+            modelSlug: newRound.modelSlug
+        };
+
+        const payload = {
+            opponent_text_encrypted: newRound.opponentText || "",
+            sender_identity: newRound.senderIdentity || null,
+            selected_mode: newRound.selectedMode,
+            analysis_data: analysisData
+        };
+
+        const { data, error } = await supabase
+          .from('rounds')
+          .update(payload)
+          .eq('id', newRound.id)
+          .select('id');
+        if (error) throw error;
+        if (!data || data.length === 0) {
+            throw new Error("Round not found");
+        }
+    } catch (e) {
+        if (!isGuest) throw e;
+        const rounds = getLocal<Round>(LS_KEYS.ROUNDS);
+        const index = rounds.findIndex(r => r.id === newRound.id);
+        if (index >= 0) {
+            rounds[index] = newRound;
+            setLocal(LS_KEYS.ROUNDS, rounds);
+        }
     }
   },
 

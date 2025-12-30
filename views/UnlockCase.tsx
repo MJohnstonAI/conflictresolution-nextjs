@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { store } from '../services/store';
+import { supabase } from '../services/supabase';
 import { simulatePurchase, BILLING_PRODUCT_IDS } from '../services/billing';
 import { Button, Badge } from '../components/UI';
 import { toast } from '../components/DesignSystem';
@@ -14,9 +15,29 @@ export const UnlockCase: React.FC = () => {
   const router = useRouter();
   const [account, setAccount] = useState<UserAccount>({ premiumSessions: 0, standardSessions: 0, totalCasesCreated: 0, isAdmin: false, role: 'demo' });
   const [loading, setLoading] = useState(false);
+  const [authMode, setAuthMode] = useState<'loading' | 'signed_in' | 'signed_out' | 'error'>('loading');
 
   useEffect(() => {
-    store.getAccount().then(setAccount);
+    const load = async () => {
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) {
+          setAuthMode('error');
+          return;
+        }
+        if (!user) {
+          setAuthMode('signed_out');
+          return;
+        }
+        setAuthMode('signed_in');
+        const acc = await store.getAccount();
+        setAccount(acc);
+      } catch (error) {
+        console.error("Account load failed:", error);
+        setAuthMode('error');
+      }
+    };
+    load();
   }, []);
 
   const handleBuySessions = async (qty: number, productId: string, type: 'standard' | 'premium') => {
@@ -24,15 +45,59 @@ export const UnlockCase: React.FC = () => {
     const result = await simulatePurchase(productId as any);
 
     if (result.success) {
-      await store.addSessions(type, qty);
-      const updated = await store.getAccount();
-      setAccount(updated);
-      toast(`Successfully added ${qty} ${type === 'premium' ? 'Premium' : 'Standard'} Session(s)!`, "success");
+      try {
+        await store.addSessions(type, qty);
+        const updated = await store.getAccount();
+        setAccount(updated);
+        toast(`Successfully added ${qty} ${type === 'premium' ? 'Premium' : 'Standard'} Session(s)!`, "success");
+      } catch (error) {
+        console.error("Session purchase sync failed:", error);
+        toast("Couldn't connect. Retry.", "error");
+      }
     } else {
       toast("Purchase failed: " + result.error, "error");
     }
     setLoading(false);
   };
+
+  if (authMode === 'loading') {
+    return (
+      <div className="min-h-screen bg-navy-950 p-6 flex flex-col items-center animate-fade-in w-full overflow-y-auto">
+        <div className="w-full max-w-2xl space-y-4 pt-12 text-center text-slate-400">
+          Loading Sessions store...
+        </div>
+      </div>
+    );
+  }
+
+  if (authMode === 'signed_out') {
+    return (
+      <div className="min-h-screen bg-navy-950 p-6 flex flex-col items-center animate-fade-in w-full overflow-y-auto">
+        <div className="w-full max-w-2xl space-y-6 pt-12 text-center">
+          <Badge color="gray">Sessions Store</Badge>
+          <h1 className="text-2xl font-serif font-bold text-slate-100">Sign in to purchase Sessions</h1>
+          <p className="text-sm text-slate-400">Create an account or sign in to unlock the Sessions store.</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button onClick={() => router.push('/auth')} className="bg-gold-600 text-navy-950 font-bold">Sign In / Join</Button>
+            <Button variant="ghost" onClick={() => router.push('/demo')} className="text-blue-300">Try Demo Mode</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (authMode === 'error') {
+    return (
+      <div className="min-h-screen bg-navy-950 p-6 flex flex-col items-center animate-fade-in w-full overflow-y-auto">
+        <div className="w-full max-w-2xl space-y-4 pt-12 text-center">
+          <Badge color="gray">Sessions Store</Badge>
+          <h1 className="text-2xl font-serif font-bold text-slate-100">Couldn't connect. Retry.</h1>
+          <p className="text-sm text-slate-400">Check your connection and try again.</p>
+          <Button onClick={() => window.location.reload()} className="bg-navy-900 border border-navy-800 text-slate-200">Retry</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-navy-950 p-6 flex flex-col items-center animate-fade-in w-full overflow-y-auto">
