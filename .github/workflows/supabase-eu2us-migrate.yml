@@ -42,6 +42,9 @@ jobs:
         env:
           EU_DB_HOST: ${{ secrets.EU_DB_HOST }}
           EU_DB_PASSWORD: ${{ secrets.EU_DB_PASSWORD }}
+          EU_DB_PORT: ${{ secrets.EU_DB_PORT }}
+          EU_DB_USER: ${{ secrets.EU_DB_USER }}
+          EU_DB_NAME: ${{ secrets.EU_DB_NAME }}
           SCHEMAS: ${{ inputs.schemas }}
         run: |
           set -euo pipefail
@@ -50,6 +53,10 @@ jobs:
             echo "Missing required secrets: EU_DB_HOST and/or EU_DB_PASSWORD"
             exit 1
           fi
+
+          EU_DB_PORT="${EU_DB_PORT:-5432}"
+          EU_DB_USER="${EU_DB_USER:-postgres}"
+          EU_DB_NAME="${EU_DB_NAME:-postgres}"
 
           schema_args=()
           IFS=',' read -ra schemas <<< "${SCHEMAS:-}"
@@ -67,16 +74,17 @@ jobs:
           export PGCONNECT_TIMEOUT="15"
 
           # GitHub-hosted runners can be IPv4-only; force IPv4 if possible.
-          EU_DB_HOSTADDR="$(getent ahostsv4 "$EU_DB_HOST" | awk 'NR==1{print $1}')"
+          EU_DB_HOSTADDR="$(getent ahostsv4 "$EU_DB_HOST" 2>/dev/null | awk 'NR==1{print $1}' || true)"
           if [ -z "$EU_DB_HOSTADDR" ]; then
             echo "Could not resolve IPv4 for EU_DB_HOST; using hostname only."
+            getent ahosts "$EU_DB_HOST" || true
             pg_dump -Fc --no-owner --no-privileges \
-              -h "$EU_DB_HOST" -U postgres -d postgres \
+              -h "$EU_DB_HOST" -p "$EU_DB_PORT" -U "$EU_DB_USER" -d "$EU_DB_NAME" \
               "${schema_args[@]}" \
               -f supabase.dump
           else
             pg_dump -Fc --no-owner --no-privileges \
-              --dbname="host=$EU_DB_HOST hostaddr=$EU_DB_HOSTADDR user=postgres dbname=postgres sslmode=require" \
+              --dbname="host=$EU_DB_HOST hostaddr=$EU_DB_HOSTADDR port=$EU_DB_PORT user=$EU_DB_USER dbname=$EU_DB_NAME sslmode=require" \
               "${schema_args[@]}" \
               -f supabase.dump
           fi
@@ -86,6 +94,9 @@ jobs:
         env:
           US_DB_HOST: ${{ secrets.US_DB_HOST }}
           US_DB_PASSWORD: ${{ secrets.US_DB_PASSWORD }}
+          US_DB_PORT: ${{ secrets.US_DB_PORT }}
+          US_DB_USER: ${{ secrets.US_DB_USER }}
+          US_DB_NAME: ${{ secrets.US_DB_NAME }}
         run: |
           set -euo pipefail
 
@@ -94,20 +105,25 @@ jobs:
             exit 1
           fi
 
+          US_DB_PORT="${US_DB_PORT:-5432}"
+          US_DB_USER="${US_DB_USER:-postgres}"
+          US_DB_NAME="${US_DB_NAME:-postgres}"
+
           export PGPASSWORD="$US_DB_PASSWORD"
           export PGSSLMODE="require"
           export PGCONNECT_TIMEOUT="15"
 
-          # Force IPv4 if possible.
-          US_DB_HOSTADDR="$(getent ahostsv4 "$US_DB_HOST" | awk 'NR==1{print $1}')"
+          # GitHub-hosted runners can be IPv4-only; force IPv4 if possible.
+          US_DB_HOSTADDR="$(getent ahostsv4 "$US_DB_HOST" 2>/dev/null | awk 'NR==1{print $1}' || true)"
           if [ -z "$US_DB_HOSTADDR" ]; then
             echo "Could not resolve IPv4 for US_DB_HOST; using hostname only."
+            getent ahosts "$US_DB_HOST" || true
             pg_restore --clean --if-exists --no-owner --no-privileges \
-              -h "$US_DB_HOST" -U postgres -d postgres \
+              -h "$US_DB_HOST" -p "$US_DB_PORT" -U "$US_DB_USER" -d "$US_DB_NAME" \
               supabase.dump
           else
             pg_restore --clean --if-exists --no-owner --no-privileges \
-              --dbname="host=$US_DB_HOST hostaddr=$US_DB_HOSTADDR user=postgres dbname=postgres sslmode=require" \
+              --dbname="host=$US_DB_HOST hostaddr=$US_DB_HOSTADDR port=$US_DB_PORT user=$US_DB_USER dbname=$US_DB_NAME sslmode=require" \
               supabase.dump
           fi
 
