@@ -9,7 +9,7 @@ import { supabase } from '../services/supabase';
 import { exportService } from '../services/export';
 import { Button, Badge } from '../components/UI';
 import { Skeleton, DropdownMenu, AlertDialog, toast } from '../components/DesignSystem';
-import { Archive, Search, Trash2, Printer, MoreVertical, FileText, AlertCircle } from 'lucide-react';
+import { Archive, Search, Trash2, Printer, MoreVertical, FileText, AlertCircle, Info } from 'lucide-react';
 
 export const Vault: React.FC = () => {
     const router = useRouter();
@@ -106,6 +106,8 @@ export const Vault: React.FC = () => {
         c.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
         c.opponentType.toLowerCase().includes(searchQuery.toLowerCase())
     );
+    const sessionHelpText =
+        "1 Mediation session generates strategy + mediation-style guidance + draft responses for one round.";
   
     if (authState === 'signed_out') {
         return (
@@ -167,6 +169,15 @@ export const Vault: React.FC = () => {
                     <Archive className="w-4 h-4 text-gold-500" />
                     Total Historical Cases: <span className="text-gold-500 font-bold">{cases.length}</span>
                 </p>
+                <div
+                    title={sessionHelpText}
+                    className="text-slate-300 text-sm flex items-center gap-2"
+                >
+                    <span>Mediation sessions remaining</span>
+                    <span className="text-blue-300 font-semibold">{account.standardSessions} Standard</span>
+                    <span className="text-gold-300 font-semibold">{account.premiumSessions} Premium</span>
+                    <Info className="w-3.5 h-3.5 text-slate-500" />
+                </div>
             </div>
           </div>
           <div className="relative w-full md:w-72">

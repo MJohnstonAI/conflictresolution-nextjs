@@ -16,6 +16,7 @@ type SessionStore = {
     planType: PlanKey;
     caseId: string | null;
     roundId: string | null;
+    generationId: string | null;
     reason: string | null;
   }) => Promise<{ consumed: boolean; remaining: number | null; errorMessage?: string }>;
   refund: (input: {
@@ -23,6 +24,7 @@ type SessionStore = {
     planType: PlanKey;
     caseId: string | null;
     roundId: string | null;
+    generationId: string | null;
     reason: string | null;
   }) => Promise<void>;
 };
@@ -55,12 +57,14 @@ export const createSessionGuard = (store: SessionStore | null) => {
     planType,
     caseId,
     roundId,
+    generationId,
     reason,
   }: {
     userId?: string | null;
     planType?: PlanType | string;
     caseId?: string | null;
     roundId?: string | null;
+    generationId?: string | null;
     reason?: string | null;
   }): Promise<SessionGuardResult> => {
     if (!store) {
@@ -86,6 +90,7 @@ export const createSessionGuard = (store: SessionStore | null) => {
       planType: planKey,
       caseId: caseId ?? null,
       roundId: roundId ?? null,
+      generationId: generationId ?? null,
       reason: reason ?? null,
     });
 
@@ -110,12 +115,14 @@ export const createSessionGuard = (store: SessionStore | null) => {
     planType,
     caseId,
     roundId,
+    generationId,
     reason,
   }: {
     userId?: string | null;
     planType?: PlanType | string;
     caseId?: string | null;
     roundId?: string | null;
+    generationId?: string | null;
     reason?: string | null;
   }): Promise<void> => {
     if (!store || !userId) return;
@@ -125,6 +132,7 @@ export const createSessionGuard = (store: SessionStore | null) => {
       planType: planKey,
       caseId: caseId ?? null,
       roundId: roundId ?? null,
+      generationId: generationId ?? null,
       reason: reason ?? null,
     });
   };
@@ -154,13 +162,14 @@ const createSupabaseSessionStore = (): SessionStore | null => {
       if (error || !data) return null;
       return data as { is_admin?: boolean };
     },
-    consume: async ({ userId, planType, caseId, roundId, reason }) => {
+    consume: async ({ userId, planType, caseId, roundId, generationId, reason }) => {
       const safeRoundId = await resolveRoundId(roundId);
       const { data, error } = await supabaseAdmin.rpc("consume_session", {
         p_user_id: userId,
         p_plan_type: planType,
         p_case_id: caseId,
         p_round_id: safeRoundId,
+        p_generation_id: generationId ?? null,
         p_reason: reason,
       });
       if (error) {
@@ -170,13 +179,14 @@ const createSupabaseSessionStore = (): SessionStore | null => {
       const row = Array.isArray(data) ? data[0] : data;
       return { consumed: !!row?.consumed, remaining: row?.remaining ?? null };
     },
-    refund: async ({ userId, planType, caseId, roundId, reason }) => {
+    refund: async ({ userId, planType, caseId, roundId, generationId, reason }) => {
       const safeRoundId = await resolveRoundId(roundId);
       const { error } = await supabaseAdmin.rpc("refund_session", {
         p_user_id: userId,
         p_plan_type: planType,
         p_case_id: caseId,
         p_round_id: safeRoundId,
+        p_generation_id: generationId ?? null,
         p_reason: reason,
       });
       if (error) {

@@ -14,10 +14,11 @@ const playfair = Playfair_Display({
   style: ["normal", "italic"],
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://conflictresolution.ai";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+const metadataBase = siteUrl ? new URL(siteUrl) : undefined;
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase,
   title: "Conflict Resolution - AI Conflict Management & Negotiation Strategy",
   description:
     "AI-powered conflict coaching tool. Analyze disputes, detect manipulation, and draft strategic responses (Peacekeeper, Barrister, or Nuclear) for landlords, relationships, and work.",

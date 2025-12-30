@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
   }
 
   const ip = getClientIp(request);
-  const limit = rateLimit(`analyze:${ip}`, 8, 60_000);
+  const limit = await rateLimit(`analyze:${ip}`, 8, 60_000);
   if (!limit.allowed) {
     const retryAfter = retryAfterSeconds(limit.resetAt);
     return NextResponse.json(
@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
     senderIdentity,
     roundId,
     isRerun,
+    generationId,
   } = body || {};
 
   if (planType === "demo") {
@@ -140,6 +141,7 @@ Analyze the input and generate 4 strategic response drafts.
 
   let sessionConsumed = false;
   const isRerunFlag = !!isRerun;
+  const safeGenerationId = typeof generationId === "string" ? generationId : null;
 
   try {
     const caseGuard = await requireCaseAccess({
@@ -155,6 +157,7 @@ Analyze the input and generate 4 strategic response drafts.
       planType,
       caseId: typeof caseId === "string" ? caseId : null,
       roundId: typeof roundId === "string" ? roundId : null,
+      generationId: safeGenerationId,
       reason: isRerunFlag ? "rerun" : "generation",
     });
     if (sessionGuard.ok === false) return sessionGuard.error;
@@ -257,7 +260,8 @@ ${text}
         planType,
         caseId: typeof caseId === "string" ? caseId : null,
         roundId: typeof roundId === "string" ? roundId : null,
-        reason: "generation_failed",
+        generationId: safeGenerationId,
+        reason: "generation_failed_refund",
       });
     }
     if (isOpenRouterError(error)) {

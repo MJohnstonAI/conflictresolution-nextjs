@@ -8,6 +8,7 @@ import { Case } from '../types';
 import { DEMO_SCENARIOS } from '../services/demo_scenarios';
 import { ArrowLeft, Heart, Briefcase, PlayCircle, Lock, Zap, CheckCircle2, Crown } from 'lucide-react';
 import { Button, Badge } from '../components/UI';
+import { trackEvent } from '@/lib/client/analytics';
 
 export const DemoSelect: React.FC = () => {
     const router = useRouter();
@@ -30,6 +31,7 @@ export const DemoSelect: React.FC = () => {
         };
 
         store.saveCase(newCase);
+        trackEvent("demo_started", { source: "demo_select", planType: "demo" });
         // Pass initialText as the first round's text to trigger the "Play" feel immediately
         router.push(`/case/${newCase.id}`);
     };

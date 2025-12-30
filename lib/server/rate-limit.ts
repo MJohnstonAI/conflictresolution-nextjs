@@ -1,3 +1,6 @@
+import { createClient } from "@supabase/supabase-js";
+import { cleanEnvValue } from "@/lib/server/env";
+
 type RateLimitEntry = {
   count: number;
   resetAt: number;
@@ -8,6 +11,16 @@ type RateLimitResult = {
   remaining: number;
   resetAt: number;
 };
+
+const supabaseUrl = cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const serviceRoleKey = cleanEnvValue(process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+const supabaseAdmin =
+  supabaseUrl && serviceRoleKey
+    ? createClient(supabaseUrl, serviceRoleKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    : null;
 
 const getStore = (): Map<string, RateLimitEntry> => {
   const g = globalThis as typeof globalThis & {
@@ -32,7 +45,7 @@ export const getClientIp = (request: Request): string => {
   return "unknown";
 };
 
-export const rateLimit = (key: string, max: number, windowMs: number): RateLimitResult => {
+const rateLimitLocal = (key: string, max: number, windowMs: number): RateLimitResult => {
   const store = getStore();
   const now = Date.now();
   const nextResetAt = now + windowMs;
@@ -52,6 +65,31 @@ export const rateLimit = (key: string, max: number, windowMs: number): RateLimit
   return { allowed: true, remaining: Math.max(0, max - entry.count), resetAt: entry.resetAt };
 };
 
+export const rateLimit = async (
+  key: string,
+  max: number,
+  windowMs: number
+): Promise<RateLimitResult> => {
+  if (supabaseAdmin) {
+    const { data, error } = await supabaseAdmin.rpc("rate_limit", {
+      p_key: key,
+      p_max: max,
+      p_window_ms: windowMs,
+    });
+    if (!error && data) {
+      const row = Array.isArray(data) ? data[0] : data;
+      if (row && typeof row.allowed === "boolean") {
+        return {
+          allowed: row.allowed,
+          remaining: Number(row.remaining) || 0,
+          resetAt: Number(row.reset_at) || Date.now() + windowMs,
+        };
+      }
+    }
+  }
+
+  return rateLimitLocal(key, max, windowMs);
+};
+
 export const retryAfterSeconds = (resetAt: number) =>
   Math.max(1, Math.ceil((resetAt - Date.now()) / 1000));
-

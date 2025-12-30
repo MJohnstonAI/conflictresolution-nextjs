@@ -14,14 +14,22 @@ create table if not exists public.session_events (
   user_id uuid not null references auth.users(id) on delete cascade,
   case_id uuid references public.cases(id) on delete set null,
   round_id uuid references public.rounds(id) on delete set null,
+  generation_id uuid,
   plan_type text not null check (plan_type in ('standard', 'premium')),
   delta integer not null,
   reason text,
   created_at timestamp with time zone not null default now()
 );
 
+alter table public.session_events
+  add column if not exists generation_id uuid;
+
 create index if not exists session_events_user_id_idx on public.session_events(user_id);
 create index if not exists session_events_case_id_idx on public.session_events(case_id);
+create index if not exists session_events_generation_id_idx on public.session_events(user_id, generation_id);
+create unique index if not exists session_events_generation_delta_uidx
+  on public.session_events(user_id, generation_id, delta)
+  where generation_id is not null;
 
 -- 3) Atomic consume/refund helpers
 create or replace function public.consume_session(
@@ -29,6 +37,7 @@ create or replace function public.consume_session(
   p_plan_type text,
   p_case_id uuid default null,
   p_round_id uuid default null,
+  p_generation_id uuid default null,
   p_reason text default null
 )
 returns table(consumed boolean, remaining integer)
@@ -37,10 +46,29 @@ as $$
 declare
   updated_remaining integer;
   safe_round_id uuid;
+  inserted_id uuid;
 begin
   if p_plan_type not in ('standard', 'premium') then
     return query select false, null;
     return;
+  end if;
+
+  if p_generation_id is not null then
+    perform 1
+      from public.session_events
+      where user_id = p_user_id
+        and generation_id = p_generation_id
+        and delta = -1
+      limit 1;
+    if found then
+      if p_plan_type = 'standard' then
+        select standard_sessions into updated_remaining from public.profiles where id = p_user_id;
+      else
+        select premium_sessions into updated_remaining from public.profiles where id = p_user_id;
+      end if;
+      return query select true, coalesce(updated_remaining, 0);
+      return;
+    end if;
   end if;
 
   if p_plan_type = 'standard' then
@@ -73,8 +101,31 @@ begin
     end if;
   end if;
 
-  insert into public.session_events(user_id, case_id, round_id, plan_type, delta, reason)
-  values (p_user_id, p_case_id, safe_round_id, p_plan_type, -1, p_reason);
+  if p_generation_id is not null then
+    insert into public.session_events(user_id, case_id, round_id, generation_id, plan_type, delta, reason)
+    values (p_user_id, p_case_id, safe_round_id, p_generation_id, p_plan_type, -1, p_reason)
+    on conflict (user_id, generation_id, delta) do nothing
+    returning id into inserted_id;
+
+    if inserted_id is null then
+      if p_plan_type = 'standard' then
+        update public.profiles
+          set standard_sessions = standard_sessions + 1
+          where id = p_user_id
+          returning standard_sessions into updated_remaining;
+      else
+        update public.profiles
+          set premium_sessions = premium_sessions + 1
+          where id = p_user_id
+          returning premium_sessions into updated_remaining;
+      end if;
+      return query select true, updated_remaining;
+      return;
+    end if;
+  else
+    insert into public.session_events(user_id, case_id, round_id, generation_id, plan_type, delta, reason)
+    values (p_user_id, p_case_id, safe_round_id, p_generation_id, p_plan_type, -1, p_reason);
+  end if;
 
   return query select true, updated_remaining;
 end;
@@ -85,6 +136,7 @@ create or replace function public.refund_session(
   p_plan_type text,
   p_case_id uuid default null,
   p_round_id uuid default null,
+  p_generation_id uuid default null,
   p_reason text default null
 )
 returns void
@@ -114,8 +166,9 @@ begin
       where id = p_user_id;
   end if;
 
-  insert into public.session_events(user_id, case_id, round_id, plan_type, delta, reason)
-  values (p_user_id, p_case_id, safe_round_id, p_plan_type, 1, p_reason);
+  insert into public.session_events(user_id, case_id, round_id, generation_id, plan_type, delta, reason)
+  values (p_user_id, p_case_id, safe_round_id, p_generation_id, p_plan_type, 1, p_reason)
+  on conflict (user_id, generation_id, delta) do nothing;
 end;
 $$;
 

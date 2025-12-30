@@ -187,6 +187,7 @@ const mapSessionEventFromDB = (row: any): SessionEvent => ({
   id: row.id,
   caseId: row.case_id ?? null,
   roundId: row.round_id ?? null,
+  generationId: row.generation_id ?? null,
   planType: row.plan_type,
   delta: Number(row.delta) || 0,
   reason: row.reason ?? null,

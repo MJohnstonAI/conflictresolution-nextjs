@@ -10,6 +10,7 @@ import { Button, Badge } from '../components/UI';
 import { toast } from '../components/DesignSystem';
 import { Zap, Crown, CheckCircle2, ArrowLeft, BrainCircuit, FileText, Sparkles, Briefcase } from 'lucide-react';
 import { UserAccount } from '../types';
+import { trackEvent } from '@/lib/client/analytics';
 
 export const UnlockCase: React.FC = () => {
   const router = useRouter();
@@ -42,6 +43,7 @@ export const UnlockCase: React.FC = () => {
 
   const handleBuySessions = async (qty: number, productId: string, type: 'standard' | 'premium') => {
     setLoading(true);
+    trackEvent("upgrade_clicked", { source: "sessions_store", planType: type, quantity: qty });
     const product = BILLING_PRODUCTS[productId as keyof typeof BILLING_PRODUCTS];
     const pendingEvent = product
       ? await store.createPurchaseEvent({

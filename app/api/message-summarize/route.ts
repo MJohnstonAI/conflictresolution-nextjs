@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   if (authGuard.ok === false) return authGuard.error;
 
   const ip = getClientIp(request);
-  const limit = rateLimit(`message-summarize:${ip}`, 2, 60_000);
+  const limit = await rateLimit(`message-summarize:${ip}`, 2, 60_000);
   if (!limit.allowed) {
     const retryAfter = retryAfterSeconds(limit.resetAt);
     return NextResponse.json(

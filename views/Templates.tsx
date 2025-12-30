@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ResponseTemplate } from '../types';
 import { store } from '../services/store';
@@ -17,6 +17,55 @@ export const Templates: React.FC = () => {
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [copiedId, setCopiedId] = useState<string | null>(null);
+
+    const structuredData = useMemo(() => {
+        const howTo = {
+            "@context": "https://schema.org",
+            "@type": "HowTo",
+            name: "Start a case from a conflict template",
+            description: "Prefill a new case with a proven conflict scenario and start in seconds.",
+            step: [
+                {
+                    "@type": "HowToStep",
+                    name: "Choose a scenario",
+                    text: "Pick a template that matches your conflict.",
+                },
+                {
+                    "@type": "HowToStep",
+                    name: "Prefill your case",
+                    text: "Click Start this case to prefill the case form instantly.",
+                },
+                {
+                    "@type": "HowToStep",
+                    name: "Review and begin",
+                    text: "Confirm the details and start your analysis when ready.",
+                },
+            ],
+        };
+        const faq = {
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            mainEntity: [
+                {
+                    "@type": "Question",
+                    name: "Do templates trigger AI calls?",
+                    acceptedAnswer: {
+                        "@type": "Answer",
+                        text: "No. Templates only prefill your case so you can start faster.",
+                    },
+                },
+                {
+                    "@type": "Question",
+                    name: "Can I edit the template text?",
+                    acceptedAnswer: {
+                        "@type": "Answer",
+                        text: "Yes. You can edit the prefilled text before running a session.",
+                    },
+                },
+            ],
+        };
+        return [howTo, faq];
+    }, []);
 
     useEffect(() => {
         const fetchTemplates = async () => {
@@ -58,10 +107,17 @@ export const Templates: React.FC = () => {
 
     return (
         <div className="flex flex-col w-full h-full animate-fade-in pb-20 md:pb-0 px-6 md:px-10">
+             {structuredData.map((schema, index) => (
+                <script
+                    key={index}
+                    type="application/ld+json"
+                    dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+                />
+             ))}
              <div className="pt-10 pb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-serif font-bold text-slate-100 mb-2">Template Library</h1>
-                    <p className="text-slate-300 text-sm">Select a common conflict scenario to pre-fill your case file.</p>
+                    <p className="text-slate-300 text-sm">Select a proven conflict scenario and start a case in seconds.</p>
                 </div>
                 <div className="relative w-full md:w-72">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -127,7 +183,7 @@ export const Templates: React.FC = () => {
                                     className={`flex-1 gap-2 ${t.recommendedPlan === 'premium' ? 'bg-navy-800 hover:bg-gold-600 hover:text-navy-950' : 'bg-navy-800 hover:bg-blue-600 hover:text-white'} border-navy-700`}
                                     size="sm"
                                  >
-                                    <span>Use Template</span>
+                                    <span>Start this case</span>
                                     <ArrowRight className="w-3.5 h-3.5" />
                                  </Button>
                             </div>

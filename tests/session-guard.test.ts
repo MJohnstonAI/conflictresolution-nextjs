@@ -8,14 +8,24 @@ const createFakeStore = (balances: Balances, isAdmin = false) => {
   const state = { ...balances };
   return {
     getProfile: async () => ({ is_admin: isAdmin }),
-    consume: async ({ planType }: { planType: "standard" | "premium" }) => {
+    consume: async ({
+      planType,
+    }: {
+      planType: "standard" | "premium";
+      generationId?: string | null;
+    }) => {
       if (state[planType] <= 0) {
         return { consumed: false, remaining: state[planType] };
       }
       state[planType] -= 1;
       return { consumed: true, remaining: state[planType] };
     },
-    refund: async ({ planType }: { planType: "standard" | "premium" }) => {
+    refund: async ({
+      planType,
+    }: {
+      planType: "standard" | "premium";
+      generationId?: string | null;
+    }) => {
       state[planType] += 1;
     },
     getBalances: () => ({ ...state }),

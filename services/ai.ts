@@ -13,6 +13,7 @@ interface AnalysisParams {
   contextSummary: string;
   historyText: string;
   currentText: string;
+  generationId?: string;
   planType?: PlanType;
   useDeepThinking?: boolean;
   demoScenarioId?: string;

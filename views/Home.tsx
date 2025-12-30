@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { consumeRouteState, setRouteState } from "@/lib/route-state";
 import { getClientAuthHeaders } from "@/lib/client/auth-headers";
+import { trackEvent } from "@/lib/client/analytics";
 
 const CONTEXT_LIMIT_CHARS = 40000;
 
@@ -171,7 +172,10 @@ const CaseSetupModal: React.FC<CaseSetupModalProps> = ({ onClose, onConfirm, opp
               {account.standardSessions === 0 && (
                 <button
                   type="button"
-                  onClick={() => router.push("/unlock/credits")}
+                  onClick={() => {
+                    trackEvent("upgrade_clicked", { source: "case_setup_modal", planType: "standard" });
+                    router.push("/unlock/credits");
+                  }}
                   className="w-full text-[10px] font-bold uppercase tracking-widest text-blue-300 hover:text-blue-200"
                 >
                   Get Sessions
@@ -210,7 +214,10 @@ const CaseSetupModal: React.FC<CaseSetupModalProps> = ({ onClose, onConfirm, opp
               {account.premiumSessions === 0 && (
                 <button
                   type="button"
-                  onClick={() => router.push("/unlock/credits")}
+                  onClick={() => {
+                    trackEvent("upgrade_clicked", { source: "case_setup_modal", planType: "premium" });
+                    router.push("/unlock/credits");
+                  }}
                   className="w-full text-[10px] font-bold uppercase tracking-widest text-gold-300 hover:text-gold-200"
                 >
                   Get Sessions
@@ -361,6 +368,7 @@ const Home: React.FC = () => {
       note: text.slice(0, CONTEXT_LIMIT_CHARS),
     };
     await store.saveCase(newCase);
+    trackEvent("case_created", { planType: newCase.planType });
     setShowPlanModal(false);
     router.push(`/case/${newCase.id}`);
   };

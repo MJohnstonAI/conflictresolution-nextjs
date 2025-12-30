@@ -8,6 +8,7 @@ import { authService } from "@/services/auth";
 import { store } from "@/services/store";
 import { themeService } from "@/services/theme";
 import { Theme } from "@/types";
+import { trackEvent } from "@/lib/client/analytics";
 import {
   Archive,
   Book,
@@ -28,6 +29,7 @@ import {
   X,
   Zap,
   FileText,
+  Info,
 } from "lucide-react";
 
 const MARKET_LEADER_PROVIDERS = [
@@ -248,6 +250,7 @@ const ModelListModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [currentTheme, setCurrentTheme] = useState<Theme>(themeService.get());
   const [isAdmin, setIsAdmin] = useState(false);
+  const [sessionBalances, setSessionBalances] = useState<{ standard: number; premium: number } | null>(null);
   const [showModelList, setShowModelList] = useState(false);
   const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
   const [modelSelections, setModelSelections] = useState<Record<PlanKey, string>>({
@@ -266,6 +269,7 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         const account = await store.getAccount();
         if (!isMounted) return;
         setIsAdmin(account.isAdmin);
+        setSessionBalances({ standard: account.standardSessions, premium: account.premiumSessions });
         if (!account.isAdmin) return;
       } catch (error) {
         if (!isMounted) return;
@@ -346,6 +350,9 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     }
   };
 
+  const sessionHelpText =
+    "1 Mediation session generates strategy + mediation-style guidance + draft responses for one round.";
+
   const allThemes = [
     { id: "light", label: "Light", icon: Sun },
     { id: "dark", label: "Navy", icon: Moon },
@@ -373,6 +380,28 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </button>
         </div>
         <div className="p-6 space-y-6">
+          {sessionBalances && (
+            <div className="bg-navy-950 border border-navy-800 rounded-xl p-4 space-y-2">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                Mediation sessions remaining
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-blue-300 font-semibold">
+                  {sessionBalances.standard} Standard
+                </span>
+                <span className="text-gold-300 font-semibold">
+                  {sessionBalances.premium} Premium
+                </span>
+              </div>
+              <div
+                title={sessionHelpText}
+                className="text-[11px] text-slate-500 flex items-center gap-2"
+              >
+                <Info className="w-3.5 h-3.5" />
+                <span>{sessionHelpText}</span>
+              </div>
+            </div>
+          )}
           <div className="space-y-3">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
               Appearance
@@ -630,7 +659,10 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
         </div>
         <div className="p-4 border-t border-navy-800/50 bg-navy-900/20">
           <button
-            onClick={() => router.push("/unlock/credits")}
+            onClick={() => {
+              trackEvent("upgrade_clicked", { source: "sidebar_wallet" });
+              router.push("/unlock/credits");
+            }}
             className="w-full flex flex-col gap-2 p-3 rounded-lg border border-navy-800 hover:border-gold-500/30 bg-navy-900 hover:bg-navy-800 transition-all group"
           >
             <div className="flex justify-between w-full">

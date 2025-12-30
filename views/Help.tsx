@@ -1,17 +1,80 @@
 
 "use client";
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ArrowLeft, BookOpen, MessageCircle, Mail, ChevronDown, ChevronUp, Send, Copy, Check, Shield, Scale, Mountain, Flame, Briefcase, Zap, Globe, Cpu, Microscope } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button, Badge } from '../components/UI';
 import { Tabs, TabsList, TabsTrigger, TabsContent, toast } from '../components/DesignSystem';
 import { MODE_HELP, MODE_ORDER, type ModeHelp } from '../lib/mode-help';
 import { Mode } from '../types';
+import { setRouteState } from '@/lib/route-state';
 
 export const Help: React.FC = () => {
   const router = useRouter();
   const [emailCopied, setEmailCopied] = useState(false);
+
+  const structuredData = useMemo(() => {
+    const howTo = {
+      "@context": "https://schema.org",
+      "@type": "HowTo",
+      name: "Resolve a conflict with Conflict Resolution",
+      description: "Follow four guided steps to analyze a conflict and craft a response.",
+      step: [
+        {
+          "@type": "HowToStep",
+          name: "Create a case",
+          text: "Pick an opponent type and describe the situation.",
+        },
+        {
+          "@type": "HowToStep",
+          name: "Open the War Room",
+          text: "Paste the opponent message you received.",
+        },
+        {
+          "@type": "HowToStep",
+          name: "Choose a strategy",
+          text: "Review the four response styles and select one.",
+        },
+        {
+          "@type": "HowToStep",
+          name: "Iterate and export",
+          text: "Run new rounds and export the full case history when done.",
+        },
+      ],
+    };
+    const faq = {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: [
+        {
+          "@type": "Question",
+          name: "Is my data private?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Yes. Your authentication and case data are stored securely in Supabase.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "What am I actually paying for?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "1 Session generates strategy, mediation-style guidance, and draft responses for one round.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "What is a round?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "A round is one opponent message plus the generated analysis and response drafts.",
+          },
+        },
+      ],
+    };
+    return [howTo, faq];
+  }, []);
 
   const modeMeta: Record<Mode, { icon: React.ElementType; container: string; label: string }> = {
     Peacekeeper: {
@@ -58,6 +121,13 @@ export const Help: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-navy-950 text-slate-200 animate-fade-in pb-20 md:pb-0">
+      {structuredData.map((schema, index) => (
+        <script
+          key={index}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+        />
+      ))}
       {/* Header */}
       <div className="bg-navy-900 border-b border-navy-800 p-6 sticky top-0 z-10">
         <div className="max-w-4xl mx-auto flex items-center gap-4">
@@ -90,6 +160,33 @@ export const Help: React.FC = () => {
             <div className="space-y-8 animate-fade-in">
               <section className="space-y-6">
                 <h2 className="text-xl font-bold text-slate-100">How to use Conflict Resolution</h2>
+
+                <div className="bg-navy-900/70 border border-navy-800 rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                      Quick Start
+                    </div>
+                    <p className="text-sm text-slate-200 font-semibold">
+                      Want to see a full case flow? Start with a prefilled scenario.
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Prefill only. No AI calls until you run a session.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => {
+                      setRouteState("/", {
+                        templateText:
+                          "My landlord is withholding my full security deposit despite move-out photos and a walk-through.",
+                        opponentType: "Landlord",
+                      });
+                      router.push("/");
+                    }}
+                    className="bg-gold-600 hover:bg-gold-500 text-navy-950 font-bold"
+                  >
+                    Start this case
+                  </Button>
+                </div>
                 
                 {/* STEPS 1 & 2 */}
                 <div className="grid gap-6 md:grid-cols-2">

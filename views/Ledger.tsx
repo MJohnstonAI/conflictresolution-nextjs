@@ -23,6 +23,7 @@ import {
   FileText,
   Printer,
 } from "lucide-react";
+import { trackEvent } from "@/lib/client/analytics";
 
 type AuthState = "loading" | "signed_out" | "signed_in" | "error";
 
@@ -43,23 +44,26 @@ const buildUsageRows = (
   caseMap: Map<string, { title: string; planType: "standard" | "premium" }>,
   roundMap: Map<string, { roundNumber: number; selectedMode?: string; modelSlug?: string }>
 ): LedgerUsageRow[] => {
-  const refundKeys = new Set(
-    events
-      .filter((event) => event.delta > 0)
-      .map((event) => `${event.caseId ?? "none"}|${event.roundId ?? "none"}`)
-  );
+  const buildPairKey = (event: SessionEvent) =>
+    event.generationId
+      ? `gen:${event.generationId}`
+      : `${event.caseId ?? "none"}|${event.roundId ?? "none"}`;
+  const refundKeys = new Set(events.filter((event) => event.delta > 0).map(buildPairKey));
+  const debitKeys = new Set(events.filter((event) => event.delta < 0).map(buildPairKey));
 
   return events.map((event) => {
-    const key = `${event.caseId ?? "none"}|${event.roundId ?? "none"}`;
+    const key = buildPairKey(event);
     const caseInfo = event.caseId ? caseMap.get(event.caseId) : null;
     const roundInfo = event.roundId ? roundMap.get(event.roundId) : null;
     const isRerun =
       typeof event.reason === "string" && event.reason.toLowerCase().includes("rerun");
+    const hasRefund = refundKeys.has(key);
+    const hasDebit = debitKeys.has(key);
 
     let status: LedgerUsageRow["status"] = "success";
     if (event.delta > 0) {
       status = "refunded";
-    } else if (refundKeys.has(key)) {
+    } else if (hasRefund) {
       status = "failed";
     }
 
@@ -67,6 +71,7 @@ const buildUsageRows = (
       id: event.id,
       caseId: event.caseId ?? null,
       roundId: event.roundId ?? null,
+      generationId: event.generationId ?? null,
       caseTitle: caseInfo?.title || "Unknown Case",
       roundLabel: roundInfo ? `Round ${roundInfo.roundNumber}` : "New round",
       modeLabel: roundInfo?.selectedMode || "Unknown mode",
@@ -76,6 +81,7 @@ const buildUsageRows = (
       planType: event.planType,
       isRerun,
       status,
+      pairedRefund: (event.delta < 0 && hasRefund) || (event.delta > 0 && hasDebit),
       delta: event.delta,
       createdAt: event.createdAt,
     };
@@ -430,6 +436,10 @@ export const Ledger: React.FC = () => {
                                     : usage.status === "failed"
                                       ? "red"
                                       : "amber";
+                                const statusLabel =
+                                  usage.status === "failed" && usage.pairedRefund
+                                    ? "failed + refunded"
+                                    : usage.status;
                                 return (
                                   <div
                                     key={usage.id}
@@ -447,10 +457,13 @@ export const Ledger: React.FC = () => {
                                         {usage.planType === "premium" ? "Premium" : "Standard"} ·{" "}
                                         {usage.isRerun ? "Redo round" : "New round"} ·{" "}
                                         {formatTimeLabel(usage.createdAt)}
+                                        {usage.pairedRefund && usage.status === "refunded"
+                                          ? " Aú Refund applied"
+                                          : ""}
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-3">
-                                      <Badge color={statusColor}>{usage.status}</Badge>
+                                      <Badge color={statusColor}>{statusLabel}</Badge>
                                       <div className="text-xs font-bold text-slate-300">
                                         {usage.delta < 0 ? "-1 Session" : "+1 Session"}
                                       </div>
@@ -482,7 +495,13 @@ export const Ledger: React.FC = () => {
               <div className="flex flex-col items-center justify-center text-slate-400 min-h-[240px] gap-3">
                 <Archive className="w-10 h-10 opacity-30" />
                 <div className="text-sm">No purchases yet.</div>
-                <Button variant="ghost" onClick={() => router.push("/unlock/credits")}>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    trackEvent("upgrade_clicked", { source: "ledger_empty" });
+                    router.push("/unlock/credits");
+                  }}
+                >
                   Visit Sessions Store
                 </Button>
               </div>

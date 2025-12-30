@@ -9,12 +9,14 @@ import { store } from '../services/store';
 import { supabase } from '../services/supabase';
 import { analyzeConflict, reviseResponse, summarizeCase } from '../services/ai';
 import { exportService } from '../services/export';
-import { Case, Round, Mode, UserAccount } from '../types';
+import { Case, Round, Mode, PlanType, UserAccount } from '../types';
 import { Button, Badge, RiskGauge } from '../components/UI';
 import { toast } from '../components/DesignSystem';
 import { DEMO_SCENARIOS } from '../services/demo_scenarios';
 import { consumeRouteState, setRouteState } from '@/lib/route-state';
 import { getClientAuthHeaders } from '@/lib/client/auth-headers';
+import { trackEvent } from '@/lib/client/analytics';
+import { clearGenerationId, getOrCreateGenerationId } from '@/lib/client/generation-id';
 import { getModeTooltipText } from '../lib/mode-help';
 
 const MAX_OPPONENT_MESSAGE_CHARS = 15000;
@@ -74,6 +76,7 @@ const InputSection: React.FC<InputSectionProps> = memo(({
     const typingTimeoutRef = useRef<number | null>(null);
     const [limitNotice, setLimitNotice] = useState<string | null>(null);
     const [isSummarizingMessage, setIsSummarizingMessage] = useState(false);
+    const lastErrorRef = useRef<string | null>(null);
 
     const charsUsed = inputText.length;
     const isNearLimit = !isDemo && charsUsed >= WARN_OPPONENT_MESSAGE_CHARS;
@@ -127,6 +130,17 @@ const InputSection: React.FC<InputSectionProps> = memo(({
     const sessionMessage = `You've used all your ${sessionPlanLabel} mediation Sessions. To continue, purchase an extension.`;
     const requestIdMatch = analysisError?.match(/Request ID:\s*([^\s]+)/i);
     const requestId = requestIdMatch?.[1];
+
+    useEffect(() => {
+        if (!analysisError || analysisError === lastErrorRef.current || isDemo) return;
+        if (isTransientError) {
+            trackEvent("retry_shown", { planType: activeCase.planType, isRerun });
+        }
+        if (isSessionError) {
+            trackEvent("paywall_shown", { planType: activeCase.planType, isRerun });
+        }
+        lastErrorRef.current = analysisError;
+    }, [analysisError, activeCase.planType, isDemo, isRerun, isSessionError, isTransientError]);
 
     const summarizeMessageToLimit = async (rawText: string) => {
         setIsSummarizingMessage(true);
@@ -275,7 +289,7 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                 )}
                 {isRerun && !isDemo && (
                     <div className="text-[10px] font-mono text-amber-300 px-1">
-                        Re-running this round will consume 1 Session.
+                        This round costs 1 Mediation session.
                     </div>
                 )}
             </div>
@@ -335,7 +349,13 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                     {isSessionError && !isDemo && (
                         <button
                             type="button"
-                            onClick={() => router.push("/unlock/credits")}
+                            onClick={() => {
+                                trackEvent("upgrade_clicked", {
+                                    source: "war_room_paywall",
+                                    planType: activeCase.planType
+                                });
+                                router.push("/unlock/credits");
+                            }}
                             className="px-3 py-2 rounded-lg border border-rose-500/40 text-rose-100 hover:text-white hover:border-rose-400 transition-all text-xs font-bold uppercase tracking-widest focus-visible:ring-2 focus-visible:ring-rose-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
                         >
                             View Session Packages
@@ -483,6 +503,7 @@ const SingleRoundView: React.FC<{
     onNextRound: () => void;
     isLatest: boolean;
     userName?: string;
+    planType?: PlanType;
     isDemo?: boolean;
     demoHasNext?: boolean;
     canRefine?: boolean;
@@ -495,6 +516,7 @@ const SingleRoundView: React.FC<{
     onNextRound,
     isLatest,
     userName,
+    planType,
     isDemo = false,
     demoHasNext = true,
     canRefine = true,
@@ -506,6 +528,7 @@ const SingleRoundView: React.FC<{
     const [refineInstruction, setRefineInstruction] = useState("");
     const [isRefining, setIsRefining] = useState(false);
     const [refineError, setRefineError] = useState<string | null>(null);
+    const [detailsReady, setDetailsReady] = useState(false);
 
     // Helper to get current response text
     const currentResponse = round.responses[getResponseKey(round.selectedMode)] || "";
@@ -515,6 +538,12 @@ const SingleRoundView: React.FC<{
 
     useEffect(() => {
         setShowAllTactics(false);
+    }, [round.id]);
+
+    useEffect(() => {
+        setDetailsReady(false);
+        const cancelIdle = scheduleIdle(() => setDetailsReady(true));
+        return () => cancelIdle();
     }, [round.id]);
 
     const handleRefine = async () => {
@@ -537,11 +566,8 @@ const SingleRoundView: React.FC<{
         try {
             await navigator.clipboard.writeText(currentResponse);
             toast("Response copied to clipboard", "success");
-            logEvent("draft_copied", {
-                caseId: round.caseId,
-                roundId: round.id,
-                mode: round.selectedMode
-            });
+            logEvent("draft_copied", { planType, mode: round.selectedMode, isDemo });
+            trackEvent("draft_copied", { planType, isDemo });
         } catch (error) {
             console.error("Copy failed:", error);
             toast("Copy failed. Please try again.", "error");
@@ -564,127 +590,143 @@ const SingleRoundView: React.FC<{
                 
                 {/* --- LEFT COLUMN: INTELLIGENCE & NARRATIVE --- */}
                 <div className="flex flex-col gap-6 h-full min-h-0 overflow-hidden">
-                    
-                    {/* TOP: ADVERSARY'S NARRATIVE (Summary) */}
-                    <div className="bg-navy-900 border border-navy-800 rounded-xl overflow-hidden shadow-lg flex-shrink-0 flex flex-col max-h-[50%]">
-                        <div className="bg-navy-950 px-5 py-3 border-b border-navy-800 flex items-center justify-between shrink-0">
-                            <div className="flex items-center gap-2">
-                                <User className="w-4 h-4 text-slate-500" />
-                                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Adversary's Narrative</span>
+                    {detailsReady ? (
+                        <>
+                            {/* TOP: ADVERSARY'S NARRATIVE (Summary) */}
+                            <div className="bg-navy-900 border border-navy-800 rounded-xl overflow-hidden shadow-lg flex-shrink-0 flex flex-col max-h-[50%]">
+                                <div className="bg-navy-950 px-5 py-3 border-b border-navy-800 flex items-center justify-between shrink-0">
+                                    <div className="flex items-center gap-2">
+                                        <User className="w-4 h-4 text-slate-500" />
+                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Adversary's Narrative</span>
+                                    </div>
+                                    {!isDemo && (
+                                        <button onClick={() => setShowRawText(!showRawText)} className="text-[10px] font-bold text-blue-500 hover:text-blue-400 flex items-center gap-1 uppercase tracking-wider">
+                                            {showRawText ? <EyeOff className="w-3 h-3"/> : <Eye className="w-3 h-3"/>}
+                                            {showRawText ? "Hide Raw" : "View Raw"}
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="p-6 overflow-y-auto custom-scrollbar bg-navy-900/50 relative">
+                                    {showRawText ? (
+                                        <div className="animate-fade-in">
+                                            <span className="text-[10px] font-bold text-slate-600 uppercase mb-2 block">Original Transcript</span>
+                                            <p className="text-slate-400 text-sm whitespace-pre-wrap font-mono leading-relaxed bg-navy-950/50 p-4 rounded-lg border border-navy-800/50">{round.opponentText}</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            <span className="text-[10px] font-bold text-gold-500 uppercase tracking-wide block mb-1">Key Conflict Points (AI Summary)</span>
+                                            <p className="text-slate-200 text-base leading-relaxed whitespace-pre-wrap">
+                                                "{round.analysisSummary}"
+                                            </p>
+                                            {round.opponentText && (
+                                                <p className="text-[11px] text-slate-500 font-mono">
+                                                    Evidence on file: "{round.opponentText.slice(0, 180)}{round.opponentText.length > 180 ? "..." : ""}"
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                            {!isDemo && (
-                                <button onClick={() => setShowRawText(!showRawText)} className="text-[10px] font-bold text-blue-500 hover:text-blue-400 flex items-center gap-1 uppercase tracking-wider">
-                                    {showRawText ? <EyeOff className="w-3 h-3"/> : <Eye className="w-3 h-3"/>}
-                                    {showRawText ? "Hide Raw" : "View Raw"}
-                                </button>
-                            )}
-                        </div>
-                        <div className="p-6 overflow-y-auto custom-scrollbar bg-navy-900/50 relative">
-                            {showRawText ? (
-                                <div className="animate-fade-in">
-                                    <span className="text-[10px] font-bold text-slate-600 uppercase mb-2 block">Original Transcript</span>
-                                    <p className="text-slate-400 text-sm whitespace-pre-wrap font-mono leading-relaxed bg-navy-950/50 p-4 rounded-lg border border-navy-800/50">{round.opponentText}</p>
+
+                            {/* BOTTOM: TACTICAL ANALYSIS */}
+                            <div className="bg-navy-900 border border-navy-800 rounded-xl overflow-hidden shadow-lg flex-1 flex flex-col min-h-0">
+                                <div className="bg-navy-950 px-5 py-3 border-b border-navy-800 flex items-center gap-2 shrink-0">
+                                    <Activity className="w-4 h-4 text-gold-500" />
+                                    <span className="text-xs font-bold text-gold-500 uppercase tracking-widest">Tactical Analysis</span>
                                 </div>
-                            ) : (
-                                <div className="space-y-2">
-                                    <span className="text-[10px] font-bold text-gold-500 uppercase tracking-wide block mb-1">Key Conflict Points (AI Summary)</span>
-                                    <p className="text-slate-200 text-base leading-relaxed whitespace-pre-wrap">
-                                        "{round.analysisSummary}"
-                                    </p>
-                                    {round.opponentText && (
-                                        <p className="text-[11px] text-slate-500 font-mono">
-                                            Evidence on file: "{round.opponentText.slice(0, 180)}{round.opponentText.length > 180 ? "..." : ""}"
-                                        </p>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* BOTTOM: TACTICAL ANALYSIS */}
-                    <div className="bg-navy-900 border border-navy-800 rounded-xl overflow-hidden shadow-lg flex-1 flex flex-col min-h-0">
-                        <div className="bg-navy-950 px-5 py-3 border-b border-navy-800 flex items-center gap-2 shrink-0">
-                            <Activity className="w-4 h-4 text-gold-500" />
-                            <span className="text-xs font-bold text-gold-500 uppercase tracking-widest">Tactical Analysis</span>
-                        </div>
-                        <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
-                            {analysisReady ? (
-                                <>
-                                    {/* Vibe */}
-                                    <div className="bg-navy-950/30 p-4 rounded-lg border border-navy-800/50">
-                                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-2">Psychological Vibe</span>
-                                        <p className="text-sm text-slate-200 font-medium">"{round.vibeCheck}"</p>
-                                    </div>
-
-                                    {/* Tactics */}
-                                    <div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-2">Detected Tactics</span>
-                                            {hasMoreTactics && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setShowAllTactics((prev) => !prev)}
-                                                    className="text-[10px] font-bold text-blue-400 hover:text-blue-300 uppercase tracking-widest"
-                                                >
-                                                    {showAllTactics ? "Show Less" : `Show All (${tactics.length})`}
-                                                </button>
-                                            )}
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {tactics.length ? (
-                                                visibleTactics.map((tactic) => (
-                                                    <span
-                                                        key={tactic}
-                                                        className="px-2.5 py-1 bg-rose-900/20 text-rose-300 border border-rose-500/20 rounded text-[10px] font-bold uppercase"
-                                                    >
-                                                        {tactic}
-                                                    </span>
-                                                ))
-                                            ) : (
-                                                <span className="text-xs text-slate-600 italic">No overt manipulation detected.</span>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <RiskGauge score={round.legalRiskScore || 0} />
-
-                                    {/* Expert Note */}
-                                    {round.expertInsights && (
-                                        <div className="bg-gold-500/5 border border-gold-500/10 p-4 rounded-lg flex gap-3">
-                                            <Info className="w-4 h-4 text-gold-500 shrink-0 mt-0.5" />
-                                            <div>
-                                                <p className="text-[10px] font-bold text-gold-500 uppercase mb-1">Expert Strategy</p>
-                                                <p className="text-xs text-slate-300 italic leading-relaxed">{round.expertInsights}</p>
+                                <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
+                                    {analysisReady ? (
+                                        <>
+                                            {/* Vibe */}
+                                            <div className="bg-navy-950/30 p-4 rounded-lg border border-navy-800/50">
+                                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-2">Psychological Vibe</span>
+                                                <p className="text-sm text-slate-200 font-medium">"{round.vibeCheck}"</p>
                                             </div>
+
+                                            {/* Tactics */}
+                                            <div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-2">Detected Tactics</span>
+                                                    {hasMoreTactics && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowAllTactics((prev) => !prev)}
+                                                            className="text-[10px] font-bold text-blue-400 hover:text-blue-300 uppercase tracking-widest"
+                                                        >
+                                                            {showAllTactics ? "Show Less" : `Show All (${tactics.length})`}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {tactics.length ? (
+                                                        visibleTactics.map((tactic) => (
+                                                            <span
+                                                                key={tactic}
+                                                                className="px-2.5 py-1 bg-rose-900/20 text-rose-300 border border-rose-500/20 rounded text-[10px] font-bold uppercase"
+                                                            >
+                                                                {tactic}
+                                                            </span>
+                                                        ))
+                                                    ) : (
+                                                        <span className="text-xs text-slate-600 italic">No overt manipulation detected.</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <RiskGauge score={round.legalRiskScore || 0} />
+
+                                            {/* Expert Note */}
+                                            {round.expertInsights && (
+                                                <div className="bg-gold-500/5 border border-gold-500/10 p-4 rounded-lg flex gap-3">
+                                                    <Info className="w-4 h-4 text-gold-500 shrink-0 mt-0.5" />
+                                                    <div>
+                                                        <p className="text-[10px] font-bold text-gold-500 uppercase mb-1">Expert Strategy</p>
+                                                        <p className="text-xs text-slate-300 italic leading-relaxed">{round.expertInsights}</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div className="space-y-6 animate-pulse">
+                                            <div className="bg-navy-950/30 p-4 rounded-lg border border-navy-800/50 space-y-3">
+                                                <div className="h-3 w-32 bg-navy-800 rounded"></div>
+                                                <div className="h-4 w-5/6 bg-navy-800/80 rounded"></div>
+                                                <div className="h-4 w-3/4 bg-navy-800/70 rounded"></div>
+                                            </div>
+                                            <div className="space-y-3">
+                                                <div className="h-3 w-28 bg-navy-800 rounded"></div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {Array.from({ length: 4 }).map((_, index) => (
+                                                        <span
+                                                            key={index}
+                                                            className="px-2.5 py-1 bg-navy-800/70 border border-navy-800 rounded text-[10px]"
+                                                        >
+                                                            &nbsp;
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <div className="h-24 bg-navy-950/30 border border-navy-800/50 rounded-lg"></div>
                                         </div>
                                     )}
-                                </>
-                            ) : (
-                                <div className="space-y-6 animate-pulse">
-                                    <div className="bg-navy-950/30 p-4 rounded-lg border border-navy-800/50 space-y-3">
-                                        <div className="h-3 w-32 bg-navy-800 rounded"></div>
-                                        <div className="h-4 w-5/6 bg-navy-800/80 rounded"></div>
-                                        <div className="h-4 w-3/4 bg-navy-800/70 rounded"></div>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <div className="h-3 w-28 bg-navy-800 rounded"></div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {Array.from({ length: 4 }).map((_, index) => (
-                                                <span
-                                                    key={index}
-                                                    className="px-2.5 py-1 bg-navy-800/70 border border-navy-800 rounded text-[10px]"
-                                                >
-                                                    &nbsp;
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div className="h-24 bg-navy-950/30 border border-navy-800/50 rounded-lg"></div>
                                 </div>
-                            )}
+                            </div>
+                        </>
+                    ) : (
+                        <div className="space-y-6 animate-pulse">
+                            <div className="bg-navy-900 border border-navy-800 rounded-xl p-6 space-y-3">
+                                <div className="h-3 w-32 bg-navy-800 rounded"></div>
+                                <div className="h-4 w-5/6 bg-navy-800/80 rounded"></div>
+                                <div className="h-4 w-3/4 bg-navy-800/70 rounded"></div>
+                                <div className="h-20 bg-navy-950/30 border border-navy-800/50 rounded-lg"></div>
+                            </div>
+                            <div className="bg-navy-900 border border-navy-800 rounded-xl p-6 space-y-3">
+                                <div className="h-3 w-36 bg-navy-800 rounded"></div>
+                                <div className="h-4 w-2/3 bg-navy-800/80 rounded"></div>
+                                <div className="h-16 bg-navy-950/30 border border-navy-800/50 rounded-lg"></div>
+                            </div>
                         </div>
-                    </div>
-
+                    )}
                 </div>
 
                 {/* --- RIGHT COLUMN: STRATEGIC RESPONSE --- */}
@@ -964,6 +1006,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         if (typeof window === "undefined") return;
         const currentRound = rounds[viewIndex];
         if (!currentRound) return;
+        const prevRound = rounds[viewIndex - 1];
 
         let cancelled = false;
         const rafId = window.requestAnimationFrame(() => {
@@ -971,6 +1014,11 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             setAnalysisReadyMap((prev) =>
                 prev[currentRound.id] ? prev : { ...prev, [currentRound.id]: true }
             );
+            if (prevRound) {
+                setAnalysisReadyMap((prev) =>
+                    prev[prevRound.id] ? prev : { ...prev, [prevRound.id]: true }
+                );
+            }
         });
 
         const cancelIdle = scheduleIdle(() => {
@@ -1136,6 +1184,12 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             const rerollsUsed = baseRound?.rerollsUsed ?? 0;
             const userGoal = baseRound?.userGoal ?? "Hold boundaries";
             const roundIndex = baseRound ? Math.max(0, baseRound.roundNumber - 1) : rounds.length;
+            const generationId = getOrCreateGenerationId({
+                caseId: caseForAnalysis.id,
+                roundId: roundIdForAnalysis ?? null,
+                isRerun,
+                inputText
+            });
 
             // Context
             const historyText = rounds.slice(-3).map(r => 
@@ -1151,6 +1205,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 contextSummary: caseForAnalysis.note || "",
                 historyText,
                 currentText: inputText,
+                generationId,
                 planType: caseForAnalysis.planType,
                 useDeepThinking: caseForAnalysis.planType === 'premium',
                 demoScenarioId: caseForAnalysis.demoScenarioId,
@@ -1181,6 +1236,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 setRerunRoundId(null);
                 setInputText("");
                 setViewIndex(existingIndex);
+                clearGenerationId({ caseId: caseForAnalysis.id, roundId: roundIdForAnalysis ?? null, isRerun });
+                trackEvent("session_used", { planType: caseForAnalysis.planType, isRerun });
                 toast("Session updated.", "success");
             } else {
                 await store.saveRound(newRound);
@@ -1194,6 +1251,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 
                 // Auto-switch view to the result we just generated
                 setViewIndex(updatedRounds.length - 1); 
+                clearGenerationId({ caseId: caseForAnalysis.id, roundId: roundIdForAnalysis ?? null, isRerun });
+                trackEvent("session_used", { planType: caseForAnalysis.planType, isRerun });
                 toast("Session complete.", "success");
             }
 
@@ -1253,7 +1312,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
 
     const startRerun = (round: Round) => {
         if (!round || !activeCase) return;
-        const confirmed = window.confirm("Edit this round and re-run? A Session is used when you run again.");
+        const confirmed = window.confirm("Edit this round and re-run? This round costs 1 Mediation session.");
         if (!confirmed) return;
         setRouteState("/", {
             rerunCaseId: activeCase.id,
@@ -1411,6 +1470,14 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const demoHasNext = isDemo && !!demoScenario?.rounds[rounds.length];
     const isRerun = !!rerunRoundId;
     const inputRoundNumber = isRerun ? (rerunRoundNumber ?? rounds.length + 1) : rounds.length + 1;
+    const sessionHelpText =
+        "1 Mediation session generates strategy + mediation-style guidance + draft responses for one round.";
+    const sessionRemaining =
+        activeCase && account
+            ? activeCase.planType === "premium"
+                ? account.premiumSessions
+                : account.standardSessions
+            : 0;
 
     return (
         <div className="w-full h-full">
@@ -1435,13 +1502,25 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                             </div>
                         </div>
                     </div>
-                    <button
-                        onClick={() => router.push('/')}
-                        aria-label="Go to Start New Case"
-                        className="p-2 rounded-full hover:bg-navy-900 text-slate-400 hover:text-gold-400 focus-visible:ring-2 focus-visible:ring-gold-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
-                    >
-                        <Home className="w-5 h-5" />
-                    </button>
+                    <div className="flex items-center gap-3">
+                        {!isDemo && account && (
+                            <div
+                                title={sessionHelpText}
+                                className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-slate-400 bg-navy-900 px-3 py-1.5 rounded border border-navy-800"
+                            >
+                                <span>Mediation sessions remaining</span>
+                                <span className="text-slate-100 font-bold">{sessionRemaining}</span>
+                                <Info className="w-3 h-3 text-slate-500" />
+                            </div>
+                        )}
+                        <button
+                            onClick={() => router.push('/')}
+                            aria-label="Go to Start New Case"
+                            className="p-2 rounded-full hover:bg-navy-900 text-slate-400 hover:text-gold-400 focus-visible:ring-2 focus-visible:ring-gold-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
+                        >
+                            <Home className="w-5 h-5" />
+                        </button>
+                    </div>
                 </div>
 
                 {/* 2. NAVIGATION BAR & PROGRESS TRACKER (Combined for visual density) */}
@@ -1647,6 +1726,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                 onNextRound={goToNext}
                                 isLatest={viewIndex === rounds.length - 1}
                                 userName={account?.name}
+                                planType={activeCase.planType}
                                 isDemo={isDemo}
                                 demoHasNext={demoHasNext}
                                 canRefine={!isDemo && !activeCase.isClosed}

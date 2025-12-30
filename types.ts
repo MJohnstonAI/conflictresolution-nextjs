@@ -106,7 +106,12 @@ export interface Round {
   modelSlug?: string;
 }
 
-export type SessionEventReason = "generation" | "rerun" | "generation_failed" | (string & {});
+export type SessionEventReason =
+  | "generation"
+  | "rerun"
+  | "generation_failed"
+  | "generation_failed_refund"
+  | (string & {});
 
 export type LedgerUsageStatus = "success" | "failed" | "refunded";
 export type LedgerPurchaseStatus = "pending" | "confirmed" | "failed";
@@ -115,6 +120,7 @@ export interface SessionEvent {
   id: string;
   caseId?: string | null;
   roundId?: string | null;
+  generationId?: string | null;
   planType: "standard" | "premium";
   delta: number;
   reason?: SessionEventReason | null;
@@ -138,6 +144,7 @@ export interface LedgerUsageRow {
   id: string;
   caseId?: string | null;
   roundId?: string | null;
+  generationId?: string | null;
   caseTitle: string;
   roundLabel: string;
   modeLabel: string;
@@ -145,6 +152,7 @@ export interface LedgerUsageRow {
   planType: "standard" | "premium";
   isRerun: boolean;
   status: LedgerUsageStatus;
+  pairedRefund?: boolean;
   delta: number;
   createdAt: string;
 }
