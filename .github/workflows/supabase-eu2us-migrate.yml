@@ -1,0 +1,120 @@
+name: Supabase EU -> US migrate
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_overwrite:
+        description: "Type MIGRATE to confirm this will overwrite the destination database"
+        required: true
+      schemas:
+        description: "Comma-separated schemas to migrate (default: public). Avoid auth/storage unless you know you need them."
+        required: false
+        default: "public"
+
+concurrency:
+  group: supabase-eu2us-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Validate confirmation
+        shell: bash
+        run: |
+          if [ "${{ inputs.confirm_overwrite }}" != "MIGRATE" ]; then
+            echo "Refusing to run: confirm_overwrite must be MIGRATE"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Postgres client
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Dump source (EU)
+        shell: bash
+        env:
+          EU_DB_HOST: ${{ secrets.EU_DB_HOST }}
+          EU_DB_PASSWORD: ${{ secrets.EU_DB_PASSWORD }}
+          SCHEMAS: ${{ inputs.schemas }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${EU_DB_HOST:-}" ] || [ -z "${EU_DB_PASSWORD:-}" ]; then
+            echo "Missing required secrets: EU_DB_HOST and/or EU_DB_PASSWORD"
+            exit 1
+          fi
+
+          schema_args=()
+          IFS=',' read -ra schemas <<< "${SCHEMAS:-}"
+          for s in "${schemas[@]}"; do
+            s="$(echo "$s" | xargs)"
+            [ -n "$s" ] && schema_args+=("-n" "$s")
+          done
+          if [ "${#schema_args[@]}" -eq 0 ]; then
+            echo "No schemas provided; refusing to run."
+            exit 1
+          fi
+
+          export PGPASSWORD="$EU_DB_PASSWORD"
+          export PGSSLMODE="require"
+          export PGCONNECT_TIMEOUT="15"
+
+          # GitHub-hosted runners can be IPv4-only; force IPv4 if possible.
+          EU_DB_HOSTADDR="$(getent ahostsv4 "$EU_DB_HOST" | awk 'NR==1{print $1}')"
+          if [ -z "$EU_DB_HOSTADDR" ]; then
+            echo "Could not resolve IPv4 for EU_DB_HOST; using hostname only."
+            pg_dump -Fc --no-owner --no-privileges \
+              -h "$EU_DB_HOST" -U postgres -d postgres \
+              "${schema_args[@]}" \
+              -f supabase.dump
+          else
+            pg_dump -Fc --no-owner --no-privileges \
+              --dbname="host=$EU_DB_HOST hostaddr=$EU_DB_HOSTADDR user=postgres dbname=postgres sslmode=require" \
+              "${schema_args[@]}" \
+              -f supabase.dump
+          fi
+
+      - name: Restore to destination (US)
+        shell: bash
+        env:
+          US_DB_HOST: ${{ secrets.US_DB_HOST }}
+          US_DB_PASSWORD: ${{ secrets.US_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${US_DB_HOST:-}" ] || [ -z "${US_DB_PASSWORD:-}" ]; then
+            echo "Missing required secrets: US_DB_HOST and/or US_DB_PASSWORD"
+            exit 1
+          fi
+
+          export PGPASSWORD="$US_DB_PASSWORD"
+          export PGSSLMODE="require"
+          export PGCONNECT_TIMEOUT="15"
+
+          # Force IPv4 if possible.
+          US_DB_HOSTADDR="$(getent ahostsv4 "$US_DB_HOST" | awk 'NR==1{print $1}')"
+          if [ -z "$US_DB_HOSTADDR" ]; then
+            echo "Could not resolve IPv4 for US_DB_HOST; using hostname only."
+            pg_restore --clean --if-exists --no-owner --no-privileges \
+              -h "$US_DB_HOST" -U postgres -d postgres \
+              supabase.dump
+          else
+            pg_restore --clean --if-exists --no-owner --no-privileges \
+              --dbname="host=$US_DB_HOST hostaddr=$US_DB_HOSTADDR user=postgres dbname=postgres sslmode=require" \
+              supabase.dump
+          fi
+
+      - name: Upload dump artifact (for rollback)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-dump
+          path: supabase.dump
+          retention-days: 7
