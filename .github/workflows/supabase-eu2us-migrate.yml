@@ -1,4 +1,4 @@
-name: Supabase migrate (EU -> US)
+name: Supabase EU -> US migrate
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
         default: "public"
 
 concurrency:
-  group: supabase-migrate
+  group: supabase-eu2us-migrate
   cancel-in-progress: false
 
 jobs:
@@ -44,13 +44,15 @@ jobs:
           EU_DB_PASSWORD: ${{ secrets.EU_DB_PASSWORD }}
           SCHEMAS: ${{ inputs.schemas }}
         run: |
-          if [ -z "$EU_DB_HOST" ] || [ -z "$EU_DB_PASSWORD" ]; then
+          set -euo pipefail
+
+          if [ -z "${EU_DB_HOST:-}" ] || [ -z "${EU_DB_PASSWORD:-}" ]; then
             echo "Missing required secrets: EU_DB_HOST and/or EU_DB_PASSWORD"
             exit 1
           fi
 
           schema_args=()
-          IFS=',' read -ra schemas <<< "$SCHEMAS"
+          IFS=',' read -ra schemas <<< "${SCHEMAS:-}"
           for s in "${schemas[@]}"; do
             s="$(echo "$s" | xargs)"
             [ -n "$s" ] && schema_args+=("-n" "$s")
@@ -62,11 +64,22 @@ jobs:
 
           export PGPASSWORD="$EU_DB_PASSWORD"
           export PGSSLMODE="require"
+          export PGCONNECT_TIMEOUT="15"
 
-          pg_dump -Fc --no-owner --no-privileges \
-            -h "$EU_DB_HOST" -U postgres -d postgres \
-            "${schema_args[@]}" \
-            -f supabase.dump
+          # GitHub-hosted runners can be IPv4-only; force IPv4 if possible.
+          EU_DB_HOSTADDR="$(getent ahostsv4 "$EU_DB_HOST" | awk 'NR==1{print $1}')"
+          if [ -z "$EU_DB_HOSTADDR" ]; then
+            echo "Could not resolve IPv4 for EU_DB_HOST; using hostname only."
+            pg_dump -Fc --no-owner --no-privileges \
+              -h "$EU_DB_HOST" -U postgres -d postgres \
+              "${schema_args[@]}" \
+              -f supabase.dump
+          else
+            pg_dump -Fc --no-owner --no-privileges \
+              --dbname="host=$EU_DB_HOST hostaddr=$EU_DB_HOSTADDR user=postgres dbname=postgres sslmode=require" \
+              "${schema_args[@]}" \
+              -f supabase.dump
+          fi
 
       - name: Restore to destination (US)
         shell: bash
@@ -74,17 +87,29 @@ jobs:
           US_DB_HOST: ${{ secrets.US_DB_HOST }}
           US_DB_PASSWORD: ${{ secrets.US_DB_PASSWORD }}
         run: |
-          if [ -z "$US_DB_HOST" ] || [ -z "$US_DB_PASSWORD" ]; then
+          set -euo pipefail
+
+          if [ -z "${US_DB_HOST:-}" ] || [ -z "${US_DB_PASSWORD:-}" ]; then
             echo "Missing required secrets: US_DB_HOST and/or US_DB_PASSWORD"
             exit 1
           fi
 
           export PGPASSWORD="$US_DB_PASSWORD"
           export PGSSLMODE="require"
+          export PGCONNECT_TIMEOUT="15"
 
-          pg_restore --clean --if-exists --no-owner --no-privileges \
-            -h "$US_DB_HOST" -U postgres -d postgres \
-            supabase.dump
+          # Force IPv4 if possible.
+          US_DB_HOSTADDR="$(getent ahostsv4 "$US_DB_HOST" | awk 'NR==1{print $1}')"
+          if [ -z "$US_DB_HOSTADDR" ]; then
+            echo "Could not resolve IPv4 for US_DB_HOST; using hostname only."
+            pg_restore --clean --if-exists --no-owner --no-privileges \
+              -h "$US_DB_HOST" -U postgres -d postgres \
+              supabase.dump
+          else
+            pg_restore --clean --if-exists --no-owner --no-privileges \
+              --dbname="host=$US_DB_HOST hostaddr=$US_DB_HOSTADDR user=postgres dbname=postgres sslmode=require" \
+              supabase.dump
+          fi
 
       - name: Upload dump artifact (for rollback)
         if: always()
