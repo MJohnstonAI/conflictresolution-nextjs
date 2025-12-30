@@ -1,6 +1,20 @@
 
 import { supabase } from './supabase';
-import { Case, Round, UserAccount, ResponseTemplate, SuccessStory, UserRole, OpponentType, Mode, PlanType, Theme } from '../types';
+import {
+  Case,
+  Round,
+  UserAccount,
+  ResponseTemplate,
+  SuccessStory,
+  UserRole,
+  OpponentType,
+  Mode,
+  PlanType,
+  Theme,
+  SessionEvent,
+  PurchaseEvent,
+} from '../types';
+import { getClientAuthHeaders } from "@/lib/client/auth-headers";
 
 // --- FALLBACK DATA (Offline Mode) ---
 const FALLBACK_TEMPLATES: ResponseTemplate[] = [
@@ -167,6 +181,29 @@ const mapStoryFromDB = (row: any): SuccessStory => ({
     stars: row.stars,
     isFeatured: row.is_featured,
     createdAt: row.created_at
+});
+
+const mapSessionEventFromDB = (row: any): SessionEvent => ({
+  id: row.id,
+  caseId: row.case_id ?? null,
+  roundId: row.round_id ?? null,
+  planType: row.plan_type,
+  delta: Number(row.delta) || 0,
+  reason: row.reason ?? null,
+  createdAt: row.created_at,
+});
+
+const mapPurchaseEventFromDB = (row: any): PurchaseEvent => ({
+  id: row.id,
+  planType: row.plan_type,
+  quantity: Number(row.quantity) || 0,
+  amount: Number(row.amount) || 0,
+  currency: row.currency || "USD",
+  provider: row.provider || "unknown",
+  status: row.status || "pending",
+  externalRef: row.external_ref ?? null,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at ?? null,
 });
 
 // --- LOCAL STORAGE HELPERS ---
@@ -712,6 +749,146 @@ export const store = {
             rounds[index] = newRound;
             setLocal(LS_KEYS.ROUNDS, rounds);
         }
+    }
+  },
+
+  getRoundsByIds: async (roundIds: string[]): Promise<Round[]> => {
+    if (!roundIds.length) return [];
+    let isGuest = false;
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+
+      if (!user) {
+        isGuest = true;
+        const rounds = getLocal<Round>(LS_KEYS.ROUNDS);
+        return rounds.filter(r => roundIds.includes(r.id));
+      }
+
+      const { data, error } = await supabase
+        .from('rounds')
+        .select('*')
+        .in('id', roundIds);
+      if (error) throw error;
+      return (data || []).map(mapRoundFromDB);
+    } catch (e) {
+      if (isGuest) {
+        const rounds = getLocal<Round>(LS_KEYS.ROUNDS);
+        return rounds.filter(r => roundIds.includes(r.id));
+      }
+      throw e;
+    }
+  },
+
+  // --- LEDGER ---
+  getSessionEvents: async (): Promise<SessionEvent[]> => {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('session_events')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map(mapSessionEventFromDB);
+    } catch (error) {
+      console.warn("Session ledger fetch failed:", error);
+      return [];
+    }
+  },
+
+  getPurchaseEvents: async (): Promise<PurchaseEvent[]> => {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('purchase_events')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map(mapPurchaseEventFromDB);
+    } catch (error) {
+      console.warn("Purchase ledger fetch failed:", error);
+      return [];
+    }
+  },
+
+  getLedgerSnapshot: async (): Promise<{ sessionEvents: SessionEvent[]; purchaseEvents: PurchaseEvent[] }> => {
+    try {
+      const authHeaders = await getClientAuthHeaders();
+      const response = await fetch("/api/ledger", { headers: authHeaders });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Ledger request failed with ${response.status}`);
+      }
+      const payload = await response.json();
+      const sessionEvents = Array.isArray(payload?.sessionEvents)
+        ? payload.sessionEvents.map(mapSessionEventFromDB)
+        : [];
+      const purchaseEvents = Array.isArray(payload?.purchaseEvents)
+        ? payload.purchaseEvents.map(mapPurchaseEventFromDB)
+        : [];
+      return { sessionEvents, purchaseEvents };
+    } catch (error) {
+      console.warn("Ledger snapshot fetch failed:", error);
+      throw error;
+    }
+  },
+
+  createPurchaseEvent: async (input: {
+    planType: "standard" | "premium";
+    quantity: number;
+    amount: number;
+    currency: string;
+    provider: string;
+    status: "pending" | "confirmed" | "failed";
+    externalRef?: string;
+  }): Promise<PurchaseEvent | null> => {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!user) return null;
+
+      const payload = {
+        user_id: user.id,
+        plan_type: input.planType,
+        quantity: input.quantity,
+        amount: input.amount,
+        currency: input.currency,
+        provider: input.provider,
+        status: input.status,
+        external_ref: input.externalRef ?? null,
+      };
+      const { data, error } = await supabase
+        .from('purchase_events')
+        .insert(payload)
+        .select('*')
+        .single();
+      if (error) throw error;
+      return data ? mapPurchaseEventFromDB(data) : null;
+    } catch (error) {
+      console.warn("Purchase event create failed:", error);
+      return null;
+    }
+  },
+
+  updatePurchaseEventStatus: async (id: string, status: "pending" | "confirmed" | "failed"): Promise<void> => {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('purchase_events')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+    } catch (error) {
+      console.warn("Purchase event update failed:", error);
     }
   },
 

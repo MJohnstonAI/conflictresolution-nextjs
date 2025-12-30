@@ -142,3 +142,38 @@ update public.profiles
 set
   standard_sessions = standard_sessions + coalesce(standard_credits, 0) * 10,
   premium_sessions = premium_sessions + coalesce(premium_credits, 0) * 40;
+
+-- 5) Ledger access policies (read your own events)
+alter table public.session_events enable row level security;
+drop policy if exists "Session Events Self Read" on public.session_events;
+create policy "Session Events Self Read" on public.session_events
+  for select using (auth.uid() = user_id);
+
+-- 6) Purchase ledger for Sessions top-ups
+create table if not exists public.purchase_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  plan_type text not null check (plan_type in ('standard', 'premium')),
+  quantity integer not null,
+  amount numeric(10, 2) not null,
+  currency text not null default 'USD',
+  provider text not null,
+  status text not null check (status in ('pending', 'confirmed', 'failed')),
+  external_ref text,
+  created_at timestamp with time zone not null default now(),
+  updated_at timestamp with time zone not null default now()
+);
+
+create index if not exists purchase_events_user_id_idx on public.purchase_events(user_id);
+create index if not exists purchase_events_created_at_idx on public.purchase_events(created_at);
+
+alter table public.purchase_events enable row level security;
+drop policy if exists "Purchase Events Self Read" on public.purchase_events;
+create policy "Purchase Events Self Read" on public.purchase_events
+  for select using (auth.uid() = user_id);
+drop policy if exists "Purchase Events Self Write" on public.purchase_events;
+create policy "Purchase Events Self Write" on public.purchase_events
+  for insert with check (auth.uid() = user_id);
+drop policy if exists "Purchase Events Self Update" on public.purchase_events;
+create policy "Purchase Events Self Update" on public.purchase_events
+  for update using (auth.uid() = user_id);

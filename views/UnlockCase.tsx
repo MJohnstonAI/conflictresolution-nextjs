@@ -5,7 +5,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { store } from '../services/store';
 import { supabase } from '../services/supabase';
-import { simulatePurchase, BILLING_PRODUCT_IDS } from '../services/billing';
+import { simulatePurchase, BILLING_PRODUCT_IDS, BILLING_PRODUCTS } from '../services/billing';
 import { Button, Badge } from '../components/UI';
 import { toast } from '../components/DesignSystem';
 import { Zap, Crown, CheckCircle2, ArrowLeft, BrainCircuit, FileText, Sparkles, Briefcase } from 'lucide-react';
@@ -42,19 +42,41 @@ export const UnlockCase: React.FC = () => {
 
   const handleBuySessions = async (qty: number, productId: string, type: 'standard' | 'premium') => {
     setLoading(true);
+    const product = BILLING_PRODUCTS[productId as keyof typeof BILLING_PRODUCTS];
+    const pendingEvent = product
+      ? await store.createPurchaseEvent({
+          planType: product.planType,
+          quantity: product.quantity,
+          amount: product.price,
+          currency: product.currency,
+          provider: "web_demo",
+          status: "pending",
+          externalRef: productId,
+        })
+      : null;
+
     const result = await simulatePurchase(productId as any);
 
     if (result.success) {
       try {
         await store.addSessions(type, qty);
+        if (pendingEvent) {
+          await store.updatePurchaseEventStatus(pendingEvent.id, "confirmed");
+        }
         const updated = await store.getAccount();
         setAccount(updated);
         toast(`Successfully added ${qty} ${type === 'premium' ? 'Premium' : 'Standard'} Session(s)!`, "success");
       } catch (error) {
         console.error("Session purchase sync failed:", error);
+        if (pendingEvent) {
+          await store.updatePurchaseEventStatus(pendingEvent.id, "failed");
+        }
         toast("Couldn't connect. Retry.", "error");
       }
     } else {
+      if (pendingEvent) {
+        await store.updatePurchaseEventStatus(pendingEvent.id, "failed");
+      }
       toast("Purchase failed: " + result.error, "error");
     }
     setLoading(false);

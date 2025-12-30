@@ -27,6 +27,7 @@ import {
   Snowflake,
   X,
   Zap,
+  FileText,
 } from "lucide-react";
 
 const MARKET_LEADER_PROVIDERS = [
@@ -542,6 +543,7 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
   const navItems = [
     { icon: HomeIcon, label: "Start", path: "/" },
     { icon: Archive, label: "Vault", path: "/vault" },
+    { icon: FileText, label: "Ledger", path: "/ledger" },
     { icon: Book, label: "Templates", path: "/templates" },
     { icon: MessageSquareQuote, label: "Success Stories", path: "/testimonials" },
     { icon: Settings, label: "Settings", action: () => setShowSettings(true) },

@@ -19,6 +19,8 @@
 - Add Refine Response UI that calls `/api/revise` and updates selected draft.
 - Add post-demo conversion CTA when demo completes.
 - Stage War Room rendering with deferred Tactical Analysis, skeleton placeholders, tactics cap, and interaction telemetry.
+- Add Session Ledger screen (usage + purchases), monthly grouping, print/PDF export, and per-entry case file preview.
+- Add `ALLOW_ADMIN_SESSION_USAGE` flag to let admins consume Sessions for testing.
 
 ## Next
 - Add a small "Refine Response" flow in War Room using `/api/revise` (optional).
@@ -33,4 +35,9 @@
 - Verify Tactical Analysis shows skeletons briefly, then fills in without interaction.
 - Click "Copy Text" and "Next Round" to confirm events log in the console (`__crEvents`).
 - In Demo mode, ensure no AI calls are made and playback still works.
+- Sign in and open `/ledger` to confirm usage and purchase tabs render with monthly accordion grouping.
+- Click "View case" on a usage row to confirm the case file preview opens using the print/PDF layout.
+- Click "Print / PDF" on the ledger page and confirm the ledger preview loads.
+- Buy Sessions in the Sessions Store and confirm a purchase event appears in the ledger with status "confirmed".
+- Set `ALLOW_ADMIN_SESSION_USAGE=true`, run a round as an admin, and confirm the ledger shows a Session deduction.
 ---

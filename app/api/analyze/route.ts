@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
     useDeepThinking,
     senderIdentity,
     roundId,
+    isRerun,
   } = body || {};
 
   if (planType === "demo") {
@@ -138,6 +139,7 @@ Analyze the input and generate 4 strategic response drafts.
   }
 
   let sessionConsumed = false;
+  const isRerunFlag = !!isRerun;
 
   try {
     const caseGuard = await requireCaseAccess({
@@ -153,7 +155,7 @@ Analyze the input and generate 4 strategic response drafts.
       planType,
       caseId: typeof caseId === "string" ? caseId : null,
       roundId: typeof roundId === "string" ? roundId : null,
-      reason: "generation",
+      reason: isRerunFlag ? "rerun" : "generation",
     });
     if (sessionGuard.ok === false) return sessionGuard.error;
     sessionConsumed = sessionGuard.consumed;

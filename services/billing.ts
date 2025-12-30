@@ -21,6 +21,46 @@ export const BILLING_PRODUCT_IDS = {
 export type BillingProductId =
   (typeof BILLING_PRODUCT_IDS)[keyof typeof BILLING_PRODUCT_IDS];
 
+export const BILLING_PRODUCTS: Record<
+  BillingProductId,
+  {
+    planType: "standard" | "premium";
+    quantity: number;
+    price: number;
+    currency: string;
+    label: string;
+  }
+> = {
+  [BILLING_PRODUCT_IDS.STANDARD_SESSIONS_10]: {
+    planType: "standard",
+    quantity: 10,
+    price: 4.99,
+    currency: "USD",
+    label: "Standard Sessions (10)",
+  },
+  [BILLING_PRODUCT_IDS.PREMIUM_SESSIONS_40]: {
+    planType: "premium",
+    quantity: 40,
+    price: 14.99,
+    currency: "USD",
+    label: "Premium Sessions (40)",
+  },
+  [BILLING_PRODUCT_IDS.PREMIUM_SESSIONS_120]: {
+    planType: "premium",
+    quantity: 120,
+    price: 39.99,
+    currency: "USD",
+    label: "Premium Sessions (120)",
+  },
+  [BILLING_PRODUCT_IDS.PREMIUM_SESSIONS_400]: {
+    planType: "premium",
+    quantity: 400,
+    price: 119.99,
+    currency: "USD",
+    label: "Premium Sessions (400)",
+  },
+};
+
 export type BillingStatus =
   | { state: "demo"; message?: string }
   | { state: "ready"; products: BillingProductId[] }

@@ -1,4 +1,4 @@
-import { Case, Round } from '../types';
+import { Case, Round, LedgerPrintPayload } from '../types';
 
 /**
  * UTILITIES FOR EXPORTING AND PRINTING CASE FILES
@@ -278,6 +278,251 @@ export const exportService = {
 
         const iframe = document.createElement('iframe');
         iframe.title = 'Case file print preview';
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+        iframe.style.border = 'none';
+        iframe.style.borderRadius = '10px';
+        iframe.style.background = '#fff';
+
+        body.appendChild(iframe);
+        modal.appendChild(header);
+        modal.appendChild(hint);
+        modal.appendChild(body);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const handleKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') cleanup();
+        };
+
+        const cleanup = () => {
+            window.removeEventListener('keydown', handleKey);
+            overlay.remove();
+        };
+
+        window.addEventListener('keydown', handleKey);
+
+        closeButton.onclick = cleanup;
+        printButton.onclick = () => {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+        };
+
+        const doc = iframe.contentWindow?.document;
+        if (!doc) {
+            cleanup();
+            return;
+        }
+
+        doc.open();
+        doc.write(content);
+        doc.close();
+    },
+
+    printLedgerToPDF: (payload: LedgerPrintPayload) => {
+        const existingOverlay = document.getElementById('cr-print-overlay');
+        if (existingOverlay) {
+            existingOverlay.remove();
+        }
+
+        const escapeHtml = (value: string) =>
+            value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+        const formatDateTime = (value: string) => new Date(value).toLocaleString();
+
+        const usageRows = payload.usageRows
+            .map((row) => {
+                return `
+                  <tr>
+                    <td>${escapeHtml(row.caseTitle)}</td>
+                    <td>${escapeHtml(row.roundLabel)}</td>
+                    <td>${escapeHtml(row.modeLabel)}</td>
+                    <td>${escapeHtml(row.planType)}</td>
+                    <td>${escapeHtml(row.status)}</td>
+                    <td>${row.delta < 0 ? "-1" : "+1"}</td>
+                    <td>${escapeHtml(formatDateTime(row.createdAt))}</td>
+                  </tr>
+                `;
+            })
+            .join("");
+
+        const purchaseRows = payload.purchaseRows
+            .map((row) => {
+                return `
+                  <tr>
+                    <td>${escapeHtml(row.planType)}</td>
+                    <td>${row.quantity}</td>
+                    <td>${escapeHtml(row.provider)}</td>
+                    <td>${escapeHtml(row.status)}</td>
+                    <td>${escapeHtml(row.currency)} ${row.amount.toFixed(2)}</td>
+                    <td>${escapeHtml(formatDateTime(row.createdAt))}</td>
+                  </tr>
+                `;
+            })
+            .join("");
+
+        const content = `
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <title>SESSION LEDGER</title>
+                <style>
+                    @page { size: A4; margin: 20mm; }
+                    body {
+                        font-family: 'Times New Roman', serif;
+                        margin: 0;
+                        color: #000;
+                        line-height: 1.5;
+                        background: white;
+                    }
+                    h1 { font-size: 22px; text-transform: uppercase; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; letter-spacing: 1px; }
+                    .meta { font-size: 12px; margin-bottom: 24px; }
+                    .meta strong { display: inline-block; min-width: 120px; }
+                    .section { margin-bottom: 28px; }
+                    .section h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+                    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+                    th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: top; }
+                    th { background: #f0f0f0; text-transform: uppercase; letter-spacing: 0.5px; font-size: 10px; }
+                    .footer { text-align: center; font-size: 10px; color: #777; margin-top: 30px; border-top: 1px solid #eee; padding-top: 10px; }
+                </style>
+            </head>
+            <body>
+                <h1>Session Ledger</h1>
+                <div class="meta">
+                    <div><strong>Generated:</strong> ${escapeHtml(formatDateTime(payload.generatedAt))}</div>
+                    <div><strong>Account:</strong> ${escapeHtml(payload.accountName || "User")}</div>
+                    <div><strong>Standard Balance:</strong> ${payload.standardBalance}</div>
+                    <div><strong>Premium Balance:</strong> ${payload.premiumBalance}</div>
+                </div>
+
+                <div class="section">
+                    <h2>Usage</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Case</th>
+                                <th>Round</th>
+                                <th>Mode</th>
+                                <th>Plan</th>
+                                <th>Status</th>
+                                <th>Delta</th>
+                                <th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${usageRows || "<tr><td colspan='7'>No usage events.</td></tr>"}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="section">
+                    <h2>Purchases</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Plan</th>
+                                <th>Qty</th>
+                                <th>Provider</th>
+                                <th>Status</th>
+                                <th>Amount</th>
+                                <th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${purchaseRows || "<tr><td colspan='6'>No purchase events.</td></tr>"}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="footer">Generated by ConflictResolution.ai - Ledger Copy</div>
+            </body>
+            </html>
+        `;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'cr-print-overlay';
+        overlay.style.position = 'fixed';
+        overlay.style.inset = '0';
+        overlay.style.background = 'rgba(2, 6, 23, 0.75)';
+        overlay.style.backdropFilter = 'blur(6px)';
+        overlay.style.zIndex = '100000';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.padding = '24px';
+
+        const modal = document.createElement('div');
+        modal.style.width = 'min(1100px, 96vw)';
+        modal.style.height = 'min(90vh, 900px)';
+        modal.style.background = '#0b1220';
+        modal.style.border = '1px solid rgba(148, 163, 184, 0.2)';
+        modal.style.borderRadius = '16px';
+        modal.style.boxShadow = '0 20px 60px rgba(0, 0, 0, 0.45)';
+        modal.style.display = 'flex';
+        modal.style.flexDirection = 'column';
+        modal.style.overflow = 'hidden';
+
+        const header = document.createElement('div');
+        header.style.display = 'flex';
+        header.style.alignItems = 'center';
+        header.style.justifyContent = 'space-between';
+        header.style.padding = '14px 18px';
+        header.style.borderBottom = '1px solid rgba(148, 163, 184, 0.2)';
+        header.style.color = '#e2e8f0';
+        header.style.fontSize = '14px';
+        header.style.fontWeight = '600';
+
+        const title = document.createElement('div');
+        title.textContent = 'Print / Save PDF';
+
+        const actions = document.createElement('div');
+        actions.style.display = 'flex';
+        actions.style.gap = '8px';
+
+        const printButton = document.createElement('button');
+        printButton.type = 'button';
+        printButton.textContent = 'Open Print Dialog';
+        printButton.style.background = '#2563eb';
+        printButton.style.border = 'none';
+        printButton.style.color = '#fff';
+        printButton.style.padding = '8px 12px';
+        printButton.style.borderRadius = '8px';
+        printButton.style.cursor = 'pointer';
+        printButton.style.fontSize = '12px';
+        printButton.style.fontWeight = '600';
+
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.textContent = 'Close';
+        closeButton.style.background = 'transparent';
+        closeButton.style.border = '1px solid rgba(148, 163, 184, 0.4)';
+        closeButton.style.color = '#e2e8f0';
+        closeButton.style.padding = '8px 12px';
+        closeButton.style.borderRadius = '8px';
+        closeButton.style.cursor = 'pointer';
+        closeButton.style.fontSize = '12px';
+        closeButton.style.fontWeight = '600';
+
+        actions.appendChild(printButton);
+        actions.appendChild(closeButton);
+        header.appendChild(title);
+        header.appendChild(actions);
+
+        const hint = document.createElement('div');
+        hint.textContent = 'Use the print dialog to Save as PDF. This preview will stay open.';
+        hint.style.padding = '10px 18px';
+        hint.style.fontSize = '12px';
+        hint.style.color = '#94a3b8';
+        hint.style.borderBottom = '1px solid rgba(148, 163, 184, 0.2)';
+
+        const body = document.createElement('div');
+        body.style.flex = '1';
+        body.style.background = '#0f172a';
+        body.style.padding = '16px';
+
+        const iframe = document.createElement('iframe');
+        iframe.title = 'Session ledger print preview';
         iframe.style.width = '100%';
         iframe.style.height = '100%';
         iframe.style.border = 'none';

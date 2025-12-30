@@ -106,6 +106,70 @@ export interface Round {
   modelSlug?: string;
 }
 
+export type SessionEventReason = "generation" | "rerun" | "generation_failed" | (string & {});
+
+export type LedgerUsageStatus = "success" | "failed" | "refunded";
+export type LedgerPurchaseStatus = "pending" | "confirmed" | "failed";
+
+export interface SessionEvent {
+  id: string;
+  caseId?: string | null;
+  roundId?: string | null;
+  planType: "standard" | "premium";
+  delta: number;
+  reason?: SessionEventReason | null;
+  createdAt: string;
+}
+
+export interface PurchaseEvent {
+  id: string;
+  planType: "standard" | "premium";
+  quantity: number;
+  amount: number;
+  currency: string;
+  provider: string;
+  status: LedgerPurchaseStatus;
+  externalRef?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+export interface LedgerUsageRow {
+  id: string;
+  caseId?: string | null;
+  roundId?: string | null;
+  caseTitle: string;
+  roundLabel: string;
+  modeLabel: string;
+  modelLabel: string;
+  planType: "standard" | "premium";
+  isRerun: boolean;
+  status: LedgerUsageStatus;
+  delta: number;
+  createdAt: string;
+}
+
+export interface LedgerPurchaseRow {
+  id: string;
+  planType: "standard" | "premium";
+  quantity: number;
+  amount: number;
+  currency: string;
+  provider: string;
+  status: LedgerPurchaseStatus;
+  externalRef?: string | null;
+  createdAt: string;
+}
+
+export interface LedgerPrintPayload {
+  generatedAt: string;
+  accountName?: string;
+  standardBalance: number;
+  premiumBalance: number;
+  usageRows: LedgerUsageRow[];
+  purchaseRows: LedgerPurchaseRow[];
+}
+
 export interface ResponseTemplate {
   id: string;
   title: string;

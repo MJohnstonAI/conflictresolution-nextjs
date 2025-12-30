@@ -75,7 +75,8 @@ export const createSessionGuard = (store: SessionStore | null) => {
       return { ok: false, error: errorResponse("Profile not found", 404) };
     }
 
-    if (profile.is_admin) {
+    const allowAdminCharges = process.env.ALLOW_ADMIN_SESSION_USAGE === "true";
+    if (profile.is_admin && !allowAdminCharges) {
       return { ok: true, consumed: false, remaining: null };
     }
 

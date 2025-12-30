@@ -1155,7 +1155,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 useDeepThinking: caseForAnalysis.planType === 'premium',
                 demoScenarioId: caseForAnalysis.demoScenarioId,
                 roundIndex,
-                senderIdentity: senderName
+                senderIdentity: senderName,
+                isRerun
             });
 
             const newRound: Round = {
