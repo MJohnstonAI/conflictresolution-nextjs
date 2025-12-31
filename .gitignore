@@ -25,3 +25,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local database backups (keep out of git)
+*.backup
+*.dump
+Backup*.sql

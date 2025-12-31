@@ -14,7 +14,7 @@ const playfair = Playfair_Display({
   style: ["normal", "italic"],
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://conflictresolution.ai";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://resolvethedisputes.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

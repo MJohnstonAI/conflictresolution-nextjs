@@ -73,7 +73,7 @@ export const Testimonials: React.FC = () => {
                         <MessageSquareQuote className="w-12 h-12 text-gold-500/50" />
                         <h3 className="text-lg font-bold text-slate-100">Have a success story?</h3>
                         <p className="text-sm text-slate-400">Share how you resolved a conflict using our AI tools.</p>
-                        <Button onClick={() => window.location.href = 'mailto:stories@conflictresolution.ai'}>Share Your Story</Button>
+                        <Button onClick={() => router.push('/help')}>Share Your Story</Button>
                     </div>
                 </div>
              )}

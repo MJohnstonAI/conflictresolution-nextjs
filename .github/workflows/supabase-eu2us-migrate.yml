@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          sudo apt-get install -y postgresql-client dnsutils
 
       - name: Dump source (EU)
         shell: bash
@@ -73,8 +73,21 @@ jobs:
           export PGSSLMODE="require"
           export PGCONNECT_TIMEOUT="15"
 
-          # GitHub-hosted runners can be IPv4-only; force IPv4 if possible.
-          EU_DB_HOSTADDR="$(getent ahostsv4 "$EU_DB_HOST" 2>/dev/null | awk 'NR==1{print $1}' || true)"
+          # GitHub runners sometimes hit intermittent DNS issues; resolve IPv4 via public resolvers.
+          EU_DB_HOSTADDR=""
+          for dns in 1.1.1.1 8.8.8.8; do
+            for i in 1 2 3; do
+              EU_DB_HOSTADDR="$(dig @"$dns" +short A "$EU_DB_HOST" | head -n 1 || true)"
+              if [ -n "$EU_DB_HOSTADDR" ]; then
+                echo "Resolved EU_DB_HOST via DNS $dns to $EU_DB_HOSTADDR"
+                break 2
+              fi
+              sleep 1
+            done
+          done
+          if [ -z "$EU_DB_HOSTADDR" ]; then
+            EU_DB_HOSTADDR="$(getent ahostsv4 "$EU_DB_HOST" 2>/dev/null | awk 'NR==1{print $1}' || true)"
+          fi
           if [ -z "$EU_DB_HOSTADDR" ]; then
             echo "Could not resolve IPv4 for EU_DB_HOST; using hostname only."
             getent ahosts "$EU_DB_HOST" || true
@@ -113,8 +126,21 @@ jobs:
           export PGSSLMODE="require"
           export PGCONNECT_TIMEOUT="15"
 
-          # GitHub-hosted runners can be IPv4-only; force IPv4 if possible.
-          US_DB_HOSTADDR="$(getent ahostsv4 "$US_DB_HOST" 2>/dev/null | awk 'NR==1{print $1}' || true)"
+          # Resolve IPv4 via public resolvers to reduce intermittent DNS failures.
+          US_DB_HOSTADDR=""
+          for dns in 1.1.1.1 8.8.8.8; do
+            for i in 1 2 3; do
+              US_DB_HOSTADDR="$(dig @"$dns" +short A "$US_DB_HOST" | head -n 1 || true)"
+              if [ -n "$US_DB_HOSTADDR" ]; then
+                echo "Resolved US_DB_HOST via DNS $dns to $US_DB_HOSTADDR"
+                break 2
+              fi
+              sleep 1
+            done
+          done
+          if [ -z "$US_DB_HOSTADDR" ]; then
+            US_DB_HOSTADDR="$(getent ahostsv4 "$US_DB_HOST" 2>/dev/null | awk 'NR==1{print $1}' || true)"
+          fi
           if [ -z "$US_DB_HOSTADDR" ]; then
             echo "Could not resolve IPv4 for US_DB_HOST; using hostname only."
             getent ahosts "$US_DB_HOST" || true

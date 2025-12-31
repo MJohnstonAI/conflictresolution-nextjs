@@ -1,3 +1,8 @@
 User-agent: *
 Allow: /
-Sitemap: https://conflictresolution.ai/sitemap.xml
+Disallow: /vault
+Disallow: /case/
+Disallow: /auth
+Disallow: /unlock/credits
+Disallow: /api/
+Sitemap: https://resolvethedisputes.com/sitemap.xml

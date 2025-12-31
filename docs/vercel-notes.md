@@ -3,7 +3,7 @@
 ## Required Environment Variables
 - NEXT_PUBLIC_SITE_URL
   - Public canonical base URL, used for metadata and absolute links.
-  - Example: https://conflictresolution.ai
+  - Example: https://resolvethedisputes.com
 - NEXT_PUBLIC_SUPABASE_URL
   - Supabase project URL for client usage.
 - NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -33,11 +33,15 @@
   - OPENROUTER_API_KEY = <your openrouter api key>
   - SUPABASE_SERVICE_ROLE_KEY = <your supabase service role key>
 - Production
-  - NEXT_PUBLIC_SITE_URL = https://conflictresolution.ai (or final production domain)
+  - NEXT_PUBLIC_SITE_URL = https://resolvethedisputes.com
   - NEXT_PUBLIC_SUPABASE_URL = <your supabase url>
   - NEXT_PUBLIC_SUPABASE_ANON_KEY = <your supabase anon key>
   - OPENROUTER_API_KEY = <your openrouter api key>
   - SUPABASE_SERVICE_ROLE_KEY = <your supabase service role key>
+
+## Supabase Region Cutover (EU -> US)
+- Update `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` to the new project (US East in your case).
+- After switching, verify in Supabase Table Editor that new signups and new cases appear in the US project before deleting the EU project.
 
 ## Canonical URL Strategy
 - Use NEXT_PUBLIC_SITE_URL for canonical metadata and open graph URLs.
