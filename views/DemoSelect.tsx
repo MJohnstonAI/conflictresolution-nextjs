@@ -54,7 +54,9 @@ export const DemoSelect: React.FC = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* STANDARD DEMO */}
-                    <div className="bg-navy-900 border border-navy-800 rounded-2xl p-6 hover:border-blue-500/50 transition-all group relative overflow-hidden">
+                    <div
+                        className="bg-navy-900 border border-navy-800 rounded-2xl p-6 hover:border-blue-500/50 transition-all group relative overflow-hidden"
+                    >
                         <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                             <Heart className="w-24 h-24 text-blue-500" />
                         </div>
@@ -82,14 +84,19 @@ export const DemoSelect: React.FC = () => {
                                 <li className="flex items-center gap-2 text-xs text-slate-400"><CheckCircle2 className="w-3 h-3 text-blue-500" /> 4 Response Strategies</li>
                             </ul>
 
-                            <Button onClick={() => startDemo('demo_standard')} className="w-full bg-blue-600 hover:bg-blue-500 border-none text-white mt-4 gap-2">
+                            <Button
+                                onClick={() => startDemo('demo_standard')}
+                                className="w-full bg-blue-600 hover:bg-blue-500 border-none text-white mt-4 gap-2"
+                            >
                                 <PlayCircle className="w-4 h-4" /> Start Standard Demo
                             </Button>
                         </div>
                     </div>
 
                     {/* PREMIUM DEMO */}
-                    <div className="bg-gradient-to-br from-navy-900 to-navy-950 border border-gold-500/30 rounded-2xl p-6 hover:border-gold-500 transition-all group relative overflow-hidden shadow-lg shadow-black/20">
+                    <div
+                        className="bg-gradient-to-br from-navy-900 to-navy-950 border border-gold-500/30 rounded-2xl p-6 hover:border-gold-500 transition-all group relative overflow-hidden shadow-lg shadow-black/20"
+                    >
                         <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                             <Briefcase className="w-24 h-24 text-gold-500" />
                         </div>

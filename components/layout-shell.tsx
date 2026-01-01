@@ -26,6 +26,7 @@ import {
   Settings,
   Sun,
   Feather,
+  Waves,
   Disc,
   Gem,
   Snowflake,
@@ -353,6 +354,7 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     { id: "slate", label: "Slate", icon: Disc },
     { id: "sapphire", label: "Sapphire", icon: Gem },
     { id: "nordic", label: "Nordic", icon: Snowflake },
+    { id: "ocean", label: "Ocean", icon: Waves },
   ];
 
   return (
@@ -541,17 +543,27 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
 
   useEffect(() => {
     themeService.init();
-    authService.getSession().then(setSession);
+    const loadAccount = async (nextSession: any) => {
+      if (!nextSession) {
+        setPremiumSessions(0);
+        setStandardSessions(0);
+        return;
+      }
+      const acc = await store.getAccount();
+      setPremiumSessions(acc.premiumSessions);
+      setStandardSessions(acc.standardSessions);
+      if (acc.theme) themeService.set(acc.theme);
+    };
+
+    authService.getSession().then((nextSession) => {
+      setSession(nextSession);
+      loadAccount(nextSession);
+    });
     const {
       data: { subscription },
     } = authService.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
-    });
-
-    store.getAccount().then((acc) => {
-      setPremiumSessions(acc.premiumSessions);
-      setStandardSessions(acc.standardSessions);
-      if (acc.theme) themeService.set(acc.theme);
+      loadAccount(nextSession);
     });
 
     return () => subscription.unsubscribe();
@@ -661,6 +673,11 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
                 <span>Sign In / Join</span>
               </button>
             )}
+            {!session && (
+              <div className="guest-pill px-3 py-2 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-200 border border-amber-500/30">
+                Guest mode: demos only. Sign in to unlock Vault + Ledger.
+              </div>
+            )}
             <button
               onClick={() => router.push("/demo")}
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-blue-400 hover:bg-blue-500/10 transition-colors"
@@ -684,66 +701,55 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
                   </button>
                 );
               }
-              const isActive = pathname === item.path;
+              const requiresAuth = item.path === "/vault" || item.path === "/ledger";
+              const isDisabled = requiresAuth && !session;
+              const isActive = !isDisabled && pathname === item.path;
               const Icon = item.icon;
               return (
                 <button
                   key={item.path}
-                  onClick={() => item.path && router.push(item.path)}
+                  onClick={() => {
+                    if (!item.path || isDisabled) return;
+                    router.push(item.path);
+                  }}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-navy-800 text-gold-400"
-                      : "text-slate-400 hover:text-slate-100 hover:bg-navy-900"
+                    isDisabled
+                      ? "text-slate-600 cursor-not-allowed"
+                      : isActive
+                        ? "bg-navy-800 text-gold-400"
+                        : "text-slate-400 hover:text-slate-100 hover:bg-navy-900"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? "text-gold-500" : "text-slate-500"}`} />
+                  <Icon
+                    className={`w-4 h-4 ${
+                      isDisabled ? "text-slate-600" : isActive ? "text-gold-500" : "text-slate-500"
+                    }`}
+                  />
                   <span>{item.label}</span>
                 </button>
               );
             })}
           </div>
           <div className="px-3">
-            <button
-              onClick={() => router.push("/unlock/credits")}
-              className="w-full flex flex-col gap-2 p-3 rounded-lg border border-navy-800 hover:border-gold-500/30 bg-navy-900 hover:bg-navy-800 transition-all group"
-            >
+            <div className="w-full flex flex-col gap-2 p-2.5 rounded-lg border border-navy-800 bg-navy-900">
               <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
-                Mediation Sessions
+                App Health
               </div>
-              <div className="flex justify-between w-full">
-                <div>
-                  <span className="text-[10px] text-slate-500 block">Standard</span>
-                  <span className="text-lg font-bold text-slate-100 group-hover:text-blue-400 transition-colors">
-                    {standardSessions}
-                  </span>
+              <div className="space-y-2 text-xs text-slate-400">
+                <div className="flex items-center justify-between">
+                  <span>Internet connection</span>
+                  {renderStatusIcon(internetOk)}
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-500 block">Premium</span>
-                  <span className="text-lg font-bold text-slate-100 group-hover:text-gold-400 transition-colors">
-                    {premiumSessions}
-                  </span>
+                <div className="flex items-center justify-between">
+                  <span>Database connection</span>
+                  {renderStatusIcon(databaseOk)}
                 </div>
-              </div>
-              <div className="mt-3 border-t border-navy-800/70 pt-3 space-y-2">
-                <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
-                  App Health
-                </div>
-                <div className="space-y-2 text-xs text-slate-400">
-                  <div className="flex items-center justify-between">
-                    <span>Internet connection</span>
-                    {renderStatusIcon(internetOk)}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Database connection</span>
-                    {renderStatusIcon(databaseOk)}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>AI API connection</span>
-                    {renderStatusIcon(aiOk)}
-                  </div>
+                <div className="flex items-center justify-between">
+                  <span>AI API connection</span>
+                  {renderStatusIcon(aiOk)}
                 </div>
               </div>
-            </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -755,14 +761,19 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
           {navItems
             .filter((i) => i.path && i.showOnMobile !== false)
             .map((item) => {
-              const isActive = pathname === item.path;
+              const requiresAuth = item.path === "/vault" || item.path === "/ledger";
+              const isDisabled = requiresAuth && !session;
+              const isActive = !isDisabled && pathname === item.path;
               const Icon = item.icon;
               return (
                 <button
                   key={item.path}
-                  onClick={() => item.path && router.push(item.path)}
+                  onClick={() => {
+                    if (!item.path || isDisabled) return;
+                    router.push(item.path);
+                  }}
                   className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-colors ${
-                    isActive ? "text-gold-500" : "text-slate-500"
+                    isDisabled ? "text-slate-600 cursor-not-allowed" : isActive ? "text-gold-500" : "text-slate-500"
                   }`}
                 >
                   <Icon className={`w-6 h-6 ${isActive ? "scale-110 transition-transform" : ""}`} strokeWidth={isActive ? 2.5 : 2} />

@@ -346,7 +346,7 @@ const Home: React.FC = () => {
               <button
                 type="button"
                 onClick={() => router.push("/unlock/credits")}
-                className="text-rose-100 underline underline-offset-4 font-semibold"
+                className="text-white underline underline-offset-4 font-semibold"
               >
                 {purchaseLabel}
               </button>

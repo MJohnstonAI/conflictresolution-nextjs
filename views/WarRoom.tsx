@@ -151,7 +151,6 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                     )}
                 </Button>
             </div>
-
             {analysisError && (
                 <div className="flex items-center gap-2 text-rose-400 text-sm bg-rose-900/20 p-4 rounded-xl border border-rose-500/20 mt-4 animate-fade-in">
                     <AlertTriangle className="w-5 h-5 shrink-0" />
@@ -298,7 +297,10 @@ const SingleRoundView: React.FC<{
                             <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">Strategic Response</span>
                         </div>
                         <button 
-                            onClick={() => { navigator.clipboard.writeText(currentResponse); toast("Response copied to clipboard", "success"); }}
+                            onClick={() => {
+                                navigator.clipboard.writeText(currentResponse);
+                                toast("Response copied to clipboard", "success");
+                            }}
                             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg border border-blue-500 transition-all"
                         >
                             <Copy className="w-4 h-4"/> Copy Text
@@ -343,7 +345,7 @@ const SingleRoundView: React.FC<{
 
                         {/* Footer Action */}
                         <div className="pt-2 shrink-0">
-                        <Button 
+                        <Button
                             fullWidth 
                             size="lg" 
                             onClick={onNextRound}
