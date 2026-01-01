@@ -123,13 +123,13 @@ const Home: React.FC = () => {
   };
 
   const createCase = async (tier: PlanType) => {
+    const limit = tier === "demo" ? 3 : 0;
     if (tier === "demo") {
       router.push("/demo");
       return;
     }
     let finalOpponent = opponent;
     if (opponent === "Other" && customAdversary.trim()) finalOpponent = customAdversary.trim();
-    const limit = tier === "demo" ? 3 : 0;
     const newCase: Case = {
       id: crypto.randomUUID(),
       title: `${finalOpponent} Conflict Case`,
