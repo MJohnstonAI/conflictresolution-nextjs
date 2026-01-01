@@ -5,12 +5,13 @@ import {
   resolveModelSlug,
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
+import { getClientIp, rateLimit, retryAfterSeconds } from "@/lib/server/rate-limit";
 import { requireAiAuth } from "@/lib/server/ai-auth";
 
 export const runtime = "nodejs";
 
-const DEFAULT_LIMIT_CHARS = 40000;
-const TARGET_LIMIT_CHARS = 32000;
+const DEFAULT_LIMIT_CHARS = 15000;
+const TARGET_LIMIT_CHARS = 12000;
 
 const errorResponse = (message: string, status: number) =>
   NextResponse.json({ error: { message, upstreamStatus: status } }, { status });
@@ -28,6 +29,23 @@ export async function POST(request: NextRequest) {
 
   const authGuard = await requireAiAuth(request);
   if (authGuard.ok === false) return authGuard.error;
+
+  if (process.env.ENABLE_AI_RATE_LIMITING === "true") {
+    const ip = getClientIp(request);
+    const limit = await rateLimit(`message-summarize:${ip}`, 2, 60_000);
+    if (!limit.allowed) {
+      const retryAfter = retryAfterSeconds(limit.resetAt);
+      return NextResponse.json(
+        {
+          error: {
+            message: `Rate limit exceeded. Please wait ${retryAfter}s and try again.`,
+            upstreamStatus: 429,
+          },
+        },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } }
+      );
+    }
+  }
 
   let body: any;
   try {
@@ -55,32 +73,31 @@ export async function POST(request: NextRequest) {
   }
 
   const system = `
-You are a professional summarizer for conflict-resolution case files.
-Summarize the user's pasted case context into a shorter "case note" that preserves:
-- identities/roles (who is who),
-- key facts, dates, numbers, commitments,
-- what the user wants,
-- the latest ask / conflict trigger,
-- any legal/contractual constraints mentioned.
+You are a professional condenser for adversary message transcripts in a conflict-resolution app.
+
+Rewrite the message so it is shorter but preserves:
+- the speaker's intent, tone, threats/ultimatums, accusations, deadlines, and key claims,
+- any names, dates, amounts, and actionable asks,
+- enough original phrasing to retain psychological cues.
 
 Output rules:
 - Return plain text only (no JSON, no markdown).
-- Keep it concise but information-dense.
-- Must be <= ${limitChars} characters. Aim for <= ${Math.min(TARGET_LIMIT_CHARS, limitChars - 1000)} characters.
+- Do NOT add new facts. Do NOT add commentary.
+- Keep it <= ${limitChars} characters. Aim for <= ${Math.min(TARGET_LIMIT_CHARS, limitChars - 500)} characters.
 `;
 
   const prompt = `
-The user pasted an extremely long conflict context that exceeds the app limit.
+The user pasted an extremely long adversary message that exceeds the app limit.
 
-Rewrite it as a concise case note:
+Condense it to fit the limit while preserving the most important details and tone:
 
---- BEGIN USER CONTEXT ---
+--- BEGIN ADVERSARY MESSAGE ---
 ${rawText}
---- END USER CONTEXT ---
+--- END ADVERSARY MESSAGE ---
 `;
 
   try {
-    const modelSlug = await resolveModelSlug("premium", null);
+    const modelSlug = await resolveModelSlug("premium", authGuard.token);
     const text = await callOpenRouterChat({
       model: modelSlug,
       messages: [
@@ -88,7 +105,7 @@ ${rawText}
         { role: "user", content: prompt.trim() },
       ],
       temperature: 0.2,
-      max_tokens: 2000,
+      max_tokens: 2500,
     });
 
     const summarized = text.trim();
@@ -110,7 +127,7 @@ ${rawText}
         { status: error.upstreamStatus || 502 }
       );
     }
-    const message = error?.message || "Failed to summarise context";
+    const message = error?.message || "Failed to summarise message";
     return errorResponse(message, 500);
   }
 }

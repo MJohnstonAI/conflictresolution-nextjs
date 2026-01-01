@@ -11,10 +11,14 @@ import { Theme } from "@/types";
 import {
   Archive,
   Book,
+  CheckCircle2,
+  FileText,
   HelpCircle,
   Home as HomeIcon,
+  CreditCard,
   LogIn,
   LogOut,
+  Loader2,
   MessageSquareQuote,
   Monitor,
   Moon,
@@ -26,6 +30,7 @@ import {
   Gem,
   Snowflake,
   X,
+  XCircle,
   Zap,
 } from "lucide-react";
 
@@ -243,6 +248,8 @@ const ModelListModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [currentTheme, setCurrentTheme] = useState<Theme>(themeService.get());
   const [isAdmin, setIsAdmin] = useState(false);
+  const [standardSessions, setStandardSessions] = useState(0);
+  const [premiumSessions, setPremiumSessions] = useState(0);
   const [showModelList, setShowModelList] = useState(false);
   const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
   const [modelSelections, setModelSelections] = useState<Record<PlanKey, string>>({
@@ -260,6 +267,8 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const account = await store.getAccount();
       if (!isMounted) return;
       setIsAdmin(account.isAdmin);
+      setStandardSessions(account.standardSessions || 0);
+      setPremiumSessions(account.premiumSessions || 0);
       if (!account.isAdmin) return;
 
       setModelsLoading(true);
@@ -358,6 +367,31 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </button>
         </div>
         <div className="p-6 space-y-6">
+          <div className="space-y-3">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+              Mediation Sessions
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-navy-950/60 border border-navy-800 rounded-xl px-3 py-3">
+                <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
+                  Standard
+                </div>
+                <div className="text-xl font-bold text-slate-100">{standardSessions}</div>
+              </div>
+              <div className="bg-navy-950/60 border border-navy-800 rounded-xl px-3 py-3">
+                <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
+                  Premium
+                </div>
+                <div className="text-xl font-bold text-slate-100">{premiumSessions}</div>
+              </div>
+            </div>
+            <p
+              className="text-[11px] text-slate-500"
+              title="1 Session generates strategy + mediation-style guidance + draft responses for one round."
+            >
+              1 Session generates strategy + mediation-style guidance + draft responses for one round.
+            </p>
+          </div>
           <div className="space-y-3">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
               Appearance
@@ -499,8 +533,11 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
   const pathname = usePathname();
   const [session, setSession] = useState<any>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [credits, setCredits] = useState(0);
-  const [standardCredits, setStandardCredits] = useState(0);
+  const [premiumSessions, setPremiumSessions] = useState(0);
+  const [standardSessions, setStandardSessions] = useState(0);
+  const [internetOk, setInternetOk] = useState(true);
+  const [databaseOk, setDatabaseOk] = useState<boolean | null>(null);
+  const [aiOk, setAiOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     themeService.init();
@@ -512,16 +549,64 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
     });
 
     store.getAccount().then((acc) => {
-      setCredits(acc.premiumCredits);
-      setStandardCredits(acc.standardCredits);
+      setPremiumSessions(acc.premiumSessions);
+      setStandardSessions(acc.standardSessions);
       if (acc.theme) themeService.set(acc.theme);
     });
 
     return () => subscription.unsubscribe();
   }, [pathname]);
 
+  useEffect(() => {
+    const updateOnline = () => setInternetOk(navigator.onLine);
+    updateOnline();
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
+    return () => {
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const checkHealth = async () => {
+      if (!internetOk) {
+        if (isMounted) {
+          setDatabaseOk(false);
+          setAiOk(false);
+        }
+        return;
+      }
+      try {
+        const response = await fetch("/api/health", { cache: "no-store" });
+        const payload = await response.json().catch(() => null);
+        if (!isMounted) return;
+        if (!response.ok || !payload?.data) {
+          setDatabaseOk(false);
+          setAiOk(false);
+          return;
+        }
+        setDatabaseOk(Boolean(payload.data.database));
+        setAiOk(Boolean(payload.data.ai));
+      } catch {
+        if (isMounted) {
+          setDatabaseOk(false);
+          setAiOk(false);
+        }
+      }
+    };
+
+    checkHealth();
+    return () => {
+      isMounted = false;
+    };
+  }, [internetOk]);
+
   const navItems = [
     { icon: HomeIcon, label: "Start", path: "/" },
+    { icon: CreditCard, label: "Purchase sessions", path: "/unlock/credits", showOnMobile: false },
+    { icon: FileText, label: "Billing Ledger", path: "/ledger", showOnMobile: false },
     { icon: Archive, label: "Vault", path: "/vault" },
     { icon: Book, label: "Templates", path: "/templates" },
     { icon: MessageSquareQuote, label: "Success Stories", path: "/testimonials" },
@@ -532,6 +617,17 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
   const handleSignOut = async () => {
     await authService.signOut();
     router.push("/auth");
+  };
+
+  const renderStatusIcon = (ok: boolean | null) => {
+    if (ok === null) {
+      return <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />;
+    }
+    return ok ? (
+      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+    ) : (
+      <XCircle className="w-4 h-4 text-rose-400" />
+    );
   };
 
   return (
@@ -606,27 +702,49 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
               );
             })}
           </div>
-        </div>
-        <div className="p-4 border-t border-navy-800/50 bg-navy-900/20">
-          <button
-            onClick={() => router.push("/unlock/credits")}
-            className="w-full flex flex-col gap-2 p-3 rounded-lg border border-navy-800 hover:border-gold-500/30 bg-navy-900 hover:bg-navy-800 transition-all group"
-          >
-            <div className="flex justify-between w-full">
-              <div>
-                <span className="text-[10px] text-slate-500 block">Standard</span>
-                <span className="text-lg font-bold text-slate-100 group-hover:text-blue-400 transition-colors">
-                  {standardCredits}
-                </span>
+          <div className="px-3">
+            <button
+              onClick={() => router.push("/unlock/credits")}
+              className="w-full flex flex-col gap-2 p-3 rounded-lg border border-navy-800 hover:border-gold-500/30 bg-navy-900 hover:bg-navy-800 transition-all group"
+            >
+              <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
+                Mediation Sessions
               </div>
-              <div className="text-right">
-                <span className="text-[10px] text-slate-500 block">Premium</span>
-                <span className="text-lg font-bold text-slate-100 group-hover:text-gold-400 transition-colors">
-                  {credits}
-                </span>
+              <div className="flex justify-between w-full">
+                <div>
+                  <span className="text-[10px] text-slate-500 block">Standard</span>
+                  <span className="text-lg font-bold text-slate-100 group-hover:text-blue-400 transition-colors">
+                    {standardSessions}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-500 block">Premium</span>
+                  <span className="text-lg font-bold text-slate-100 group-hover:text-gold-400 transition-colors">
+                    {premiumSessions}
+                  </span>
+                </div>
               </div>
-            </div>
-          </button>
+              <div className="mt-3 border-t border-navy-800/70 pt-3 space-y-2">
+                <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
+                  App Health
+                </div>
+                <div className="space-y-2 text-xs text-slate-400">
+                  <div className="flex items-center justify-between">
+                    <span>Internet connection</span>
+                    {renderStatusIcon(internetOk)}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Database connection</span>
+                    {renderStatusIcon(databaseOk)}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>AI API connection</span>
+                    {renderStatusIcon(aiOk)}
+                  </div>
+                </div>
+              </div>
+            </button>
+          </div>
         </div>
       </aside>
       <main className="flex-1 relative overflow-y-auto overflow-x-hidden scroll-smooth transition-colors duration-300 bg-navy-950">
@@ -635,7 +753,7 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
       <nav className="md:hidden fixed bottom-0 w-full bg-navy-950/90 backdrop-blur-lg border-t border-navy-800 pb-safe-area z-50 transition-colors duration-300">
         <div className="flex justify-around items-center h-16 px-2">
           {navItems
-            .filter((i) => i.path)
+            .filter((i) => i.path && i.showOnMobile !== false)
             .map((item) => {
               const isActive = pathname === item.path;
               const Icon = item.icon;

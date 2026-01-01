@@ -5,6 +5,7 @@ import {
   resolveModelSlug,
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
+import { requireAiAuth } from "@/lib/server/ai-auth";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,9 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+
+  const authGuard = await requireAiAuth(request);
+  if (authGuard.ok === false) return authGuard.error;
 
   let body: any;
   try {
@@ -49,9 +53,7 @@ export async function POST(request: NextRequest) {
   `;
 
   try {
-    const authHeader = request.headers.get("authorization");
-    const authToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const modelSlug = await resolveModelSlug(planType, authToken);
+    const modelSlug = await resolveModelSlug(planType, authGuard.token);
 
     const text = await callOpenRouterChat({
       model: modelSlug,

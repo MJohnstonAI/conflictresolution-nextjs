@@ -16,8 +16,8 @@ export interface UserAccount {
   name?: string;
   
   // Wallet
-  standardCredits: number; // For Standard Cases (10 rounds)
-  premiumCredits: number;  // For Premium Cases (40 rounds + Expert)
+  standardSessions: number; // Session balance for Standard mediation
+  premiumSessions: number;  // Session balance for Premium mediation
   
   // Permissions
   isAdmin: boolean; // Bypasses all limits
@@ -39,8 +39,8 @@ export interface Case {
   
   // Monetization State
   planType: PlanType;
-  roundsLimit: number;    // 10 (Standard), 40 (Premium)
-  roundsUsed: number;     
+  roundsLimit: number;    // Legacy/demo guardrail (no billing limits per case)
+  roundsUsed: number;     // Tracking only; sessions are billed per analysis round
   
   isClosed: boolean;      // If true, no more AI calls allowed
 

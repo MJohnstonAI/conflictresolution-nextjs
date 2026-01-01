@@ -11,6 +11,7 @@ interface AnalysisParams {
   contextSummary: string;
   historyText: string;
   currentText: string;
+  caseId?: string;
   planType?: PlanType;
   useDeepThinking?: boolean;
   demoScenarioId?: string;

@@ -13,8 +13,9 @@ Conflict Resolution is a case-based AI coaching tool for people navigating tense
 - Case setup with adversary selection, optional custom opponent, and initial context.
 - War Room analysis with summary, detected tactics, legal risk gauge, and response modes.
 - Response modes: Peacekeeper, Barrister, Grey Rock, Nuclear.
-- Credits-based plans: Standard (10 rounds) and Premium (40 rounds + expert insights).
-- Demo scenarios to experience Standard and Premium flows without credits.
+- Session-based plans: Standard and Premium mediation sessions (1 session = 1 analyzed round).
+- Session ledger with monthly rollups and daily drilldowns.
+- Demo scenarios to experience Standard and Premium flows without sessions.
 - Template library for common conflict scenarios.
 - Case vault with export to Markdown and print/PDF.
 - Testimonials and Help Center for support and guidance.

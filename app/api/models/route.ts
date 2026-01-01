@@ -4,16 +4,20 @@ import {
   isOpenRouterError,
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
+import { requireAiAuth } from "@/lib/server/ai-auth";
 
 export const runtime = "nodejs";
 
 const errorResponse = (message: string, status: number) =>
   NextResponse.json({ error: { message, upstreamStatus: status } }, { status });
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!process.env.OPENROUTER_API_KEY) {
     return errorResponse("Missing OPENROUTER_API_KEY", 500);
   }
+
+  const authGuard = await requireAiAuth(request);
+  if (authGuard.ok === false) return authGuard.error;
 
   try {
     const models = await fetchOpenRouterModels();

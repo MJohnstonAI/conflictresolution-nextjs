@@ -35,7 +35,13 @@ export const Vault: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [editingCase, setEditingCase] = useState<Case | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
-    const [account, setAccount] = useState<UserAccount>({ premiumCredits: 0, standardCredits: 0, totalCasesCreated: 0, isAdmin: false, role: 'demo' });
+    const [account, setAccount] = useState<UserAccount>({
+        premiumSessions: 0,
+        standardSessions: 0,
+        totalCasesCreated: 0,
+        isAdmin: false,
+        role: 'demo'
+    });
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [syncError, setSyncError] = useState(false);
   
@@ -119,7 +125,7 @@ export const Vault: React.FC = () => {
                     <AlertCircle className="w-5 h-5 text-rose-500" />
                     <div>
                         <p className="text-sm font-bold text-slate-100">Account Sync Warning</p>
-                        <p className="text-xs text-slate-400">Your profile is taking longer than expected to initialize. Credits may not show correctly.</p>
+                        <p className="text-xs text-slate-400">Your profile is taking longer than expected to initialize. Sessions may not show correctly.</p>
                     </div>
                 </div>
                 <button onClick={fetchData} className="px-3 py-1.5 bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-rose-600 transition-all">
@@ -148,6 +154,22 @@ export const Vault: React.FC = () => {
                 className="w-full bg-navy-900 border border-navy-800 rounded-lg pl-9 pr-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:border-gold-500/50 outline-none" 
             />
           </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+            <div className="flex-1 bg-navy-900 border border-navy-800 rounded-xl p-4">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Standard Sessions</div>
+                <div className="text-2xl font-bold text-slate-100">{account.standardSessions}</div>
+            </div>
+            <div className="flex-1 bg-navy-900 border border-navy-800 rounded-xl p-4">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Premium Sessions</div>
+                <div className="text-2xl font-bold text-slate-100">{account.premiumSessions}</div>
+            </div>
+            <div className="flex-1 bg-navy-900 border border-navy-800 rounded-xl p-4 text-xs text-slate-400">
+                <span title="1 Session generates strategy + mediation-style guidance + draft responses for one round.">
+                    1 Session generates strategy + mediation-style guidance + draft responses for one round.
+                </span>
+            </div>
         </div>
         
         {loading ? (
@@ -183,10 +205,8 @@ export const Vault: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
             {filteredCases.map(c => {
                 const caseNum = caseNumberMap.get(c.id) || 0;
-                const roundsLimit = c.roundsLimit || (c.planType === "premium" ? 40 : 10);
-                const remaining = Math.max(0, roundsLimit - c.roundsUsed);
-                const progressPercentage = (c.roundsUsed / roundsLimit) * 100;
-                
+                const roundsLogged = Math.max(0, c.roundsUsed);
+
                 return (
                    <div key={c.id} onClick={() => router.push(`/case/${c.id}`)} className={`group bg-navy-900 border rounded-2xl p-6 relative overflow-visible transition-all hover:shadow-2xl hover:shadow-black/40 cursor-pointer ${c.planType === 'premium' ? 'border-gold-500/20 hover:border-gold-500/60 bg-gradient-to-br from-navy-900 to-navy-950' : 'border-navy-800 hover:border-navy-700'}`}>
                       <div className="absolute top-6 right-6 z-20" onClick={(e) => e.stopPropagation()}>
@@ -229,16 +249,9 @@ export const Vault: React.FC = () => {
                                 </div>
                                 <div className="text-right">
                                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono">
-                                        ROUND {c.roundsUsed} / <span className="text-slate-300">REMAINING {remaining}</span>
+                                        ROUNDS LOGGED <span className="text-slate-300">{roundsLogged}</span>
                                     </span>
                                 </div>
-                            </div>
-                            
-                            <div className="w-full bg-navy-950 h-2 rounded-full overflow-hidden border border-navy-800 shadow-inner">
-                                <div 
-                                    className={`h-full transition-all duration-700 ease-out shadow-[0_0_8px_rgba(0,0,0,0.5)] ${c.planType === 'premium' ? 'bg-gradient-to-r from-gold-600 to-gold-400' : 'bg-gradient-to-r from-blue-600 to-blue-400'}`} 
-                                    style={{width: `${progressPercentage}%`}} 
-                                />
                             </div>
                         </div>
                         

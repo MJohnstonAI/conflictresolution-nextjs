@@ -100,11 +100,10 @@ const FALLBACK_STORIES: SuccessStory[] = [
 
 const mapCaseFromDB = (row: any): Case => {
   const planType = row.plan_type;
-  const fallbackLimit = planType === "premium" ? 40 : planType === "standard" ? 10 : 3;
   const roundsLimitRaw = Number(row.rounds_limit);
   const roundsUsedRaw = Number(row.rounds_used);
   const roundsLimit =
-    Number.isFinite(roundsLimitRaw) && roundsLimitRaw > 0 ? roundsLimitRaw : fallbackLimit;
+    Number.isFinite(roundsLimitRaw) && roundsLimitRaw >= 0 ? roundsLimitRaw : 0;
   const roundsUsed = Number.isFinite(roundsUsedRaw) && roundsUsedRaw >= 0 ? roundsUsedRaw : 0;
 
   return {
@@ -174,8 +173,8 @@ const mapStoryFromDB = (row: any): SuccessStory => ({
 const LS_KEYS = {
   CASES: 'cr_local_cases',
   ROUNDS: 'cr_local_rounds',
-  PREMIUM_CREDITS: 'cr_local_premium_credits',
-  STANDARD_CREDITS: 'cr_local_standard_credits'
+  PREMIUM_SESSIONS: 'cr_local_premium_sessions',
+  STANDARD_SESSIONS: 'cr_local_standard_sessions'
 };
 
 const getLocal = <T>(key: string): T[] => {
@@ -197,12 +196,12 @@ export const store = {
         
         // DEMO / GUEST USER
         if (!user) {
-            const premCredits = parseInt(localStorage.getItem(LS_KEYS.PREMIUM_CREDITS) || '0');
-            const stdCredits = parseInt(localStorage.getItem(LS_KEYS.STANDARD_CREDITS) || '0');
+            const premSessions = parseInt(localStorage.getItem(LS_KEYS.PREMIUM_SESSIONS) || '0');
+            const stdSessions = parseInt(localStorage.getItem(LS_KEYS.STANDARD_SESSIONS) || '0');
             const localCases = getLocal(LS_KEYS.CASES).length;
             return { 
-              premiumCredits: premCredits, 
-              standardCredits: stdCredits,
+              premiumSessions: premSessions, 
+              standardSessions: stdSessions,
               totalCasesCreated: localCases, 
               isAdmin: false,
               role: 'demo' 
@@ -226,8 +225,8 @@ export const store = {
                   id: user.id, 
                   email: user.email, 
                   name: user.user_metadata?.full_name || '',
-                  premium_credits: 0, 
-                  standard_credits: 0,
+                  premium_sessions: 0,
+                  standard_sessions: 0,
                   is_admin: false,
                   is_trial: false,
                   theme: 'dark'
@@ -250,8 +249,8 @@ export const store = {
             .select('*', { count: 'exact', head: true })
             .eq('user_id', user.id);
 
-        const premiumCredits = data?.premium_credits || 0;
-        const standardCredits = data?.standard_credits || 0;
+        const premiumSessions = data?.premium_sessions || 0;
+        const standardSessions = data?.standard_sessions || 0;
         
         // HARDCODED ADMIN CHECK
         const isHardcodedAdmin = user.email === 'marcaj777@gmail.com';
@@ -263,14 +262,14 @@ export const store = {
           role = 'admin';
         } else if (isTrial) {
           role = 'trial';
-        } else if (premiumCredits > 0 || standardCredits > 0) {
+        } else if (premiumSessions > 0 || standardSessions > 0) {
           role = 'paid';
         }
 
         return {
           name: data?.name || user.user_metadata?.full_name || '',
-          premiumCredits,
-          standardCredits,
+          premiumSessions,
+          standardSessions,
           isAdmin,
           role,
           totalCasesCreated: count || 0,
@@ -278,12 +277,12 @@ export const store = {
         };
     } catch (e) {
         console.warn("Auth sync interrupted, falling back to local guest state.");
-        const premCredits = parseInt(localStorage.getItem(LS_KEYS.PREMIUM_CREDITS) || '0');
-        const stdCredits = parseInt(localStorage.getItem(LS_KEYS.STANDARD_CREDITS) || '0');
+        const premSessions = parseInt(localStorage.getItem(LS_KEYS.PREMIUM_SESSIONS) || '0');
+        const stdSessions = parseInt(localStorage.getItem(LS_KEYS.STANDARD_SESSIONS) || '0');
         const localCases = getLocal(LS_KEYS.CASES).length;
         return { 
-          premiumCredits: premCredits, 
-          standardCredits: stdCredits,
+          premiumSessions: premSessions, 
+          standardSessions: stdSessions,
           totalCasesCreated: localCases, 
           isAdmin: false,
           role: 'demo' 
@@ -305,70 +304,42 @@ export const store = {
     }
   },
 
-  addCredits: async (type: 'standard' | 'premium', amount: number): Promise<void> => {
-    try {
-        const { data: { user } } = await supabase.auth.getUser();
-        const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_CREDITS : LS_KEYS.STANDARD_CREDITS;
-        const dbCol = type === 'premium' ? 'premium_credits' : 'standard_credits';
+  addSessions: async (type: 'standard' | 'premium', amount: number): Promise<void> => {
+    const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_SESSIONS : LS_KEYS.STANDARD_SESSIONS;
+    const dbCol = type === 'premium' ? 'premium_sessions' : 'standard_sessions';
+    const { data, error } = await supabase.auth.getUser();
+    if (error) throw error;
+    const user = data?.user;
 
-        if (!user) {
-            const current = parseInt(localStorage.getItem(lsKey) || '0');
-            localStorage.setItem(lsKey, (current + amount).toString());
-            return;
-        }
-
-        const { data } = await supabase.from('profiles').select(dbCol).eq('id', user.id).single();
-        const current = data?.[dbCol] || 0;
-
-        await supabase
-          .from('profiles')
-          .update({ [dbCol]: current + amount })
-          .eq('id', user.id);
-    } catch (e) {
-        const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_CREDITS : LS_KEYS.STANDARD_CREDITS;
+    if (!user) {
         const current = parseInt(localStorage.getItem(lsKey) || '0');
         localStorage.setItem(lsKey, (current + amount).toString());
+        return;
     }
-  },
 
-  deductCredit: async (type: 'standard' | 'premium'): Promise<boolean> => {
-    try {
-        const account = await store.getAccount();
-        if (account.isAdmin) return true; 
+    if (amount > 0) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        const response = await fetch("/api/sessions/adjust", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ planType: type, delta: amount, reason: "purchase" }),
+        });
 
-        const { data: { user } } = await supabase.auth.getUser();
-        const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_CREDITS : LS_KEYS.STANDARD_CREDITS;
-        const dbCol = type === 'premium' ? 'premium_credits' : 'standard_credits';
-
-        if (!user) {
-            const current = parseInt(localStorage.getItem(lsKey) || '0');
-            if (current > 0) {
-                localStorage.setItem(lsKey, (current - 1).toString());
-                return true;
-            }
-            return false;
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || "Failed to update sessions");
         }
-
-        const { data } = await supabase.from('profiles').select(dbCol).eq('id', user.id).single();
-        const current = data?.[dbCol] || 0;
-
-        if (current > 0) {
-          const { error } = await supabase
-            .from('profiles')
-            .update({ [dbCol]: current - 1 })
-            .eq('id', user.id);
-          return !error;
-        }
-        return false;
-    } catch (e) {
-         const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_CREDITS : LS_KEYS.STANDARD_CREDITS;
-         const current = parseInt(localStorage.getItem(lsKey) || '0');
-         if (current > 0) {
-             localStorage.setItem(lsKey, (current - 1).toString());
-             return true;
-         }
-         return false;
+        return;
     }
+
+    const { data: profileData } = await supabase.from('profiles').select(dbCol).eq('id', user.id).single();
+    const current = profileData?.[dbCol] || 0;
+
+    await supabase
+      .from('profiles')
+      .update({ [dbCol]: current + amount })
+      .eq('id', user.id);
   },
   
   // --- CASES ---

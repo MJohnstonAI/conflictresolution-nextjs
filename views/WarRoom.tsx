@@ -299,9 +299,9 @@ const SingleRoundView: React.FC<{
                         </div>
                         <button 
                             onClick={() => { navigator.clipboard.writeText(currentResponse); toast("Response copied to clipboard", "success"); }}
-                            className="text-[10px] font-bold text-slate-500 hover:text-white flex items-center gap-1 uppercase tracking-wider"
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg border border-blue-500 transition-all"
                         >
-                            <Copy className="w-3 h-3"/> Copy Text
+                            <Copy className="w-4 h-4"/> Copy Text
                         </button>
                     </div>
 
@@ -534,16 +534,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         setAnalysisError(null);
 
         try {
-            const roundsLimit =
-                activeCase.roundsLimit || (activeCase.planType === "premium" ? 40 : 10);
             const roundsUsedCount = Math.max(activeCase.roundsUsed, rounds.length);
-
-            if (roundsUsedCount >= roundsLimit && !activeCase.isClosed) {
-                const closedCase = { ...activeCase, isClosed: true };
-                await store.saveCase(closedCase);
-                setActiveCase(closedCase);
-                throw new Error("Case limit reached. Case is now closed.");
-            }
             if (activeCase.isClosed) throw new Error("This case is closed.");
 
             // Context
@@ -552,6 +543,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             ).join('\n\n');
 
             const analysis = await analyzeConflict({
+                caseId: activeCase.id,
                 opponentType: activeCase.opponentType,
                 mode: 'Peacekeeper',
                 goal: 'Hold boundaries',
@@ -580,12 +572,14 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             };
 
             await store.saveRound(newRound);
-            const updatedCase = { ...activeCase, roundsUsed: roundsUsedCount + 1, roundsLimit };
+            const updatedCase = { ...activeCase, roundsUsed: roundsUsedCount + 1 };
             await store.saveCase(updatedCase);
+            const refreshedAccount = await store.getAccount();
             
             const updatedRounds = [...rounds, newRound];
             setRounds(updatedRounds);
             setActiveCase(updatedCase);
+            setAccount(refreshedAccount);
             setInputText("");
             
             // Auto-switch view to the result we just generated
@@ -645,12 +639,11 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const isInputMode = viewIndex === rounds.length;
     const currentRound = !isInputMode ? rounds[viewIndex] : null;
 
-    // Stats for Progress Bar
-    const roundsLimit = activeCase.roundsLimit || (activeCase.planType === "premium" ? 40 : 10);
     const roundsUsedCount = Math.max(rounds.length, activeCase.roundsUsed);
-    const remainingCount = Math.max(0, roundsLimit - roundsUsedCount);
-    const progressPercentage = (roundsUsedCount / roundsLimit) * 100;
     const displayRound = isInputMode ? rounds.length : (viewIndex + 1);
+    const standardSessions = account?.standardSessions ?? 0;
+    const premiumSessions = account?.premiumSessions ?? 0;
+    const activeSessions = activeCase.planType === "premium" ? premiumSessions : standardSessions;
     const activeModelSlug =
         currentRound?.modelSlug ||
         [...rounds].reverse().find((round) => round.modelSlug)?.modelSlug ||
@@ -680,7 +673,18 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                             </div>
                         </div>
                     </div>
-                    <button onClick={() => router.push('/')} className="p-2 rounded-full hover:bg-navy-900 text-slate-400 hover:text-gold-400"><Home className="w-5 h-5"/></button>
+                    <div className="flex items-center gap-4">
+                        <div className="text-right">
+                            <div
+                              className="text-[10px] font-bold uppercase tracking-widest text-slate-500"
+                              title="1 Session generates strategy + mediation-style guidance + draft responses for one round."
+                            >
+                              Sessions Remaining
+                            </div>
+                            <div className="text-sm font-bold text-slate-100">{activeSessions}</div>
+                        </div>
+                        <button onClick={() => router.push('/')} className="p-2 rounded-full hover:bg-navy-900 text-slate-400 hover:text-gold-400"><Home className="w-5 h-5"/></button>
+                    </div>
                 </div>
 
                 {/* 2. NAVIGATION BAR & PROGRESS TRACKER (Combined for visual density) */}
@@ -706,15 +710,9 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                 </div>
                                 <div className="text-right flex-1 min-w-0">
                                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono whitespace-nowrap">
-                                        ROUND {displayRound} / <span className="text-slate-300">REMAINING {remainingCount}</span>
+                                        ROUND {displayRound}
                                     </span>
                                 </div>
-                            </div>
-                            <div className="w-full bg-navy-950 h-1.5 rounded-full overflow-hidden border border-navy-800 shadow-inner">
-                                <div 
-                                    className={`h-full transition-all duration-700 ease-out ${activeCase.planType === 'premium' ? 'bg-gradient-to-r from-gold-600 to-gold-400' : 'bg-gradient-to-r from-blue-600 to-blue-400'}`} 
-                                    style={{width: `${progressPercentage}%`}} 
-                                />
                             </div>
                          </div>
 

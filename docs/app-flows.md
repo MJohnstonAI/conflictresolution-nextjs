@@ -23,13 +23,14 @@
 - Input opponent text per round and optional sender name.
 - Analysis returns summary, vibe check, detected tactics, and legal risk.
 - Choose a response mode and copy the suggested reply.
-- Continue rounds until the case reaches its limit.
+- Each analysis consumes 1 Mediation Session (Standard or Premium).
+- Continue rounds as needed; cases do not have a fixed round cap.
 - Export case history from the Vault (Markdown or print/PDF).
 
 ## Vault (/vault)
 - View case list, search, edit notes/title, and delete.
 - Export case history to Markdown or PDF.
-- Shows account credit sync status.
+- Shows session balances and account sync status.
 
 ## Templates (/templates)
 - Search conflict scenarios, copy text, or prefill Home to create a case.
@@ -41,9 +42,13 @@
 - Guide, FAQ, and Contact tabs.
 - Contact includes support email copy action.
 
-## Credits store (/unlock/credits)
-- Buy Standard or Premium case files.
+## Sessions store (/unlock/credits)
+- Buy Standard or Premium mediation sessions.
 - Shows wallet balance.
+
+## Session Ledger (/ledger)
+- Monthly rollups of session purchases and usage.
+- Drill down to see daily consumption.
 
 ## Settings (modal)
 - Theme options: light, dark (navy), system, aura, midnight, slate, sapphire, nordic.

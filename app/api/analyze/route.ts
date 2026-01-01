@@ -5,6 +5,10 @@ import {
   resolveModelSlug,
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
+import { getClientIp, rateLimit, retryAfterSeconds } from "@/lib/server/rate-limit";
+import { requireAiAuth } from "@/lib/server/ai-auth";
+import { requireCaseAccess } from "@/lib/server/ai-case-guard";
+import { consumeSession, refundSession } from "@/lib/server/session-guard";
 
 export const runtime = "nodejs";
 
@@ -14,6 +18,26 @@ export async function POST(request: NextRequest) {
       { error: { message: "Missing OPENROUTER_API_KEY", upstreamStatus: 500 } },
       { status: 500 }
     );
+  }
+
+  const authGuard = await requireAiAuth(request);
+  if (authGuard.ok === false) return authGuard.error;
+
+  if (process.env.ENABLE_AI_RATE_LIMITING === "true") {
+    const ip = getClientIp(request);
+    const limit = await rateLimit(`analyze:${ip}`, 8, 60_000);
+    if (!limit.allowed) {
+      const retryAfter = retryAfterSeconds(limit.resetAt);
+      return NextResponse.json(
+        {
+          error: {
+            message: `Rate limit exceeded. Please wait ${retryAfter}s and try again.`,
+            upstreamStatus: 429,
+          },
+        },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } }
+      );
+    }
   }
 
   let body: any;
@@ -27,6 +51,7 @@ export async function POST(request: NextRequest) {
   }
 
   const {
+    caseId,
     opponentType,
     contextSummary,
     historyText,
@@ -36,12 +61,27 @@ export async function POST(request: NextRequest) {
     senderIdentity,
   } = body || {};
 
+  if (planType === "demo") {
+    return NextResponse.json(
+      { error: { message: "Demo mode does not call AI", upstreamStatus: 400 } },
+      { status: 400 }
+    );
+  }
+
   const MAX_INPUT_CHARS = 15000;
   const CONTEXT_SUMMARY_LIMIT_CHARS = 40000;
   const BUSINESS_OUTPUT_LIMIT = 2000;
   const truncatedText = (currentText || "").slice(0, MAX_INPUT_CHARS);
   const truncatedContextSummary =
     typeof contextSummary === "string" ? contextSummary.slice(0, CONTEXT_SUMMARY_LIMIT_CHARS) : "";
+
+  const caseGuard = await requireCaseAccess({
+    caseId: typeof caseId === "string" ? caseId : null,
+    userId: authGuard.userId,
+    planType,
+    requireOpen: true,
+  });
+  if (caseGuard.ok === false) return caseGuard.error;
 
   const SYSTEM_INSTRUCTION = `
 You are Conflict Resolution AI.
@@ -109,10 +149,20 @@ Analyze the input and generate 4 strategic response drafts.
     maxOutputTokens = 4000;
   }
 
+  let sessionConsumed = false;
+
   try {
-    const authHeader = request.headers.get("authorization");
-    const authToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const modelSlug = await resolveModelSlug(planType, authToken);
+    const sessionGuard = await consumeSession({
+      userId: authGuard.userId,
+      planType,
+      caseId: typeof caseId === "string" ? caseId : null,
+      roundId: null,
+      reason: "analysis",
+    });
+    if (sessionGuard.ok === false) return sessionGuard.error;
+    sessionConsumed = sessionGuard.consumed;
+
+    const modelSlug = await resolveModelSlug(planType, authGuard.token);
 
     const text = await callOpenRouterChat({
       model: modelSlug,
@@ -139,6 +189,15 @@ Analyze the input and generate 4 strategic response drafts.
     const parsed = JSON.parse(jsonString);
     return NextResponse.json({ ...parsed, modelSlug });
   } catch (error: any) {
+    if (sessionConsumed) {
+      await refundSession({
+        userId: authGuard.userId,
+        planType,
+        caseId: typeof caseId === "string" ? caseId : null,
+        roundId: null,
+        reason: "analysis_failed_refund",
+      });
+    }
     if (isOpenRouterError(error)) {
       return NextResponse.json(
         { error: toOpenRouterErrorPayload(error) },

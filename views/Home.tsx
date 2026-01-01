@@ -2,21 +2,13 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Badge } from "@/components/UI";
 import { Combobox } from "@/components/DesignSystem";
 import { toast } from "@/components/DesignSystem";
 import { store } from "@/services/store";
-import { simulatePurchase, BILLING_PRODUCT_IDS } from "@/services/billing";
-import { Case, OpponentType, PlanType, UserAccount } from "@/types";
-import { formatApiErrorMessage, readApiErrorDetails } from "@/lib/client/api-errors";
+import { Case, OpponentType, PlanType } from "@/types";
 import {
-  AlertTriangle,
   ArrowRight,
-  Briefcase,
-  CheckCircle2,
-  FileText,
-  Home as HomeIcon,
-  Link as LinkIcon,
+  Crown,
   Loader2,
   User,
   Zap,
@@ -71,230 +63,7 @@ const SEO: React.FC<{ title: string }> = ({ title }) => {
   return null;
 };
 
-
-interface CaseSetupModalProps {
-  onClose: () => void;
-  onConfirm: (tier: PlanType) => void;
-  opponent: string;
-}
-
-const CaseSetupModal: React.FC<CaseSetupModalProps> = ({ onClose, onConfirm, opponent }) => {
-  const [account, setAccount] = useState<UserAccount>({
-    premiumCredits: 0,
-    standardCredits: 0,
-    totalCasesCreated: 0,
-    isAdmin: false,
-    role: "demo",
-  });
-  const [loading, setLoading] = useState<string | null>(null);
-  const [modelsError, setModelsError] = useState<string | null>(null);
-
-  useEffect(() => {
-    store.getAccount().then(setAccount);
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const checkModels = async () => {
-      try {
-        const response = await fetch("/api/models", { signal: controller.signal });
-        if (!response.ok) {
-          const details = await readApiErrorDetails(response);
-          if (!controller.signal.aborted) {
-            setModelsError(formatApiErrorMessage(details, response.status));
-          }
-          return;
-        }
-        if (!controller.signal.aborted) {
-          setModelsError(null);
-        }
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        const message = error instanceof Error ? error.message : "Unable to reach AI provider.";
-        setModelsError(formatApiErrorMessage({ message }));
-      }
-    };
-
-    checkModels();
-    return () => controller.abort();
-  }, []);
-
-  const handleBuyStandard = async () => {
-    setLoading("standard_buy");
-    try {
-      const result = await simulatePurchase(BILLING_PRODUCT_IDS.STANDARD_CASE_PASS);
-      if (result.success) {
-        await store.addCredits("standard", 1);
-        const success = await store.deductCredit("standard");
-        if (success) {
-          onConfirm("standard");
-        } else {
-          alert("Error activating case pass.");
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(null);
-  };
-
-  const handleUseStandardCredit = async () => {
-    if (account.standardCredits > 0) {
-      setLoading("using_standard");
-      const success = await store.deductCredit("standard");
-      if (success) onConfirm("standard");
-      setLoading(null);
-    }
-  };
-
-  const handleUsePremiumCredit = async () => {
-    if (account.premiumCredits > 0) {
-      setLoading("using_premium");
-      const success = await store.deductCredit("premium");
-      if (success) onConfirm("premium");
-      setLoading(null);
-    }
-  };
-
-  const handleBuyPremium = async (productId: string, creditAmount: number) => {
-    setLoading(productId);
-    try {
-      const result = await simulatePurchase(productId as any);
-      if (result.success) {
-        await store.addCredits("premium", creditAmount);
-        const success = await store.deductCredit("premium");
-        if (success) {
-          onConfirm("premium");
-        } else {
-          store.getAccount().then(setAccount);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(null);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-md animate-fade-in">
-      <button
-        onClick={onClose}
-        className="absolute top-6 left-1/2 -translate-x-1/2 p-3 bg-navy-900 border border-navy-700 text-slate-400 hover:text-slate-100 rounded-full shadow-xl z-50 flex items-center gap-2 transition-all hover:scale-105 group"
-      >
-        <HomeIcon className="w-5 h-5 group-hover:text-gold-500" />
-        <span className="text-xs font-bold uppercase tracking-widest hidden md:inline">Return Home</span>
-      </button>
-      <div className="bg-navy-900 border border-navy-800 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] md:max-h-auto relative mt-8 md:mt-0">
-        {modelsError && (
-          <div className="px-6 py-4 border-b border-rose-500/20 bg-rose-900/10 text-rose-200 flex items-center gap-3 text-sm">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>{modelsError}</span>
-          </div>
-        )}
-        <div className="flex flex-col md:flex-row flex-1">
-          <div className="w-full md:w-[35%] p-6 border-b md:border-b-0 md:border-r border-navy-800 flex flex-col relative bg-navy-900">
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <Badge color="blue">Standard</Badge>
-                <span className="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-1">
-                  <FileText className="w-3 h-3" />
-                  Wallet: {account.standardCredits}
-                </span>
-              </div>
-              <h3 className="text-xl font-bold text-slate-100">Quick Dispute</h3>
-              <p className="text-xs text-blue-400 mt-1">For simple arguments</p>
-            </div>
-            <ul className="space-y-3 mb-6 flex-1">
-              <li className="text-sm text-slate-200 flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" /> 10 Rounds Included
-              </li>
-            </ul>
-            {account.standardCredits > 0 ? (
-              <Button
-                variant="primary"
-                className="bg-blue-600 hover:bg-blue-500 border-none text-white w-full"
-                onClick={handleUseStandardCredit}
-                disabled={!!loading}
-              >
-                {loading === "using_standard" ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <LinkIcon className="w-4 h-4 mr-2" /> Assign Credit
-                  </>
-                )}
-              </Button>
-            ) : (
-              <Button
-                variant="primary"
-                className="bg-blue-600 hover:bg-blue-500 border-none text-white mt-auto"
-                onClick={handleBuyStandard}
-                disabled={!!loading}
-              >
-                {loading === "standard_buy" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buy & Start ($4.99)"}
-              </Button>
-            )}
-          </div>
-
-          <div className="flex-1 p-6 flex flex-col relative bg-gradient-to-br from-navy-900 to-navy-950">
-            <div className="mb-4 flex justify-between items-start">
-              <div>
-                <Badge color="amber">Serious Conflicts</Badge>
-                <h3 className="text-xl font-bold text-slate-100 mt-2">Professional</h3>
-                <p className="text-xs text-gold-500 mt-1 font-medium">Deep psychological analysis</p>
-              </div>
-              <div className="flex flex-col items-end">
-                <div className="flex items-center gap-2 bg-navy-950/50 px-3 py-1 rounded-full border border-gold-500/20">
-                  <Briefcase className="w-3 h-3 text-gold-500" />
-                  <span className="text-sm font-bold text-slate-100">{account.premiumCredits} Credits</span>
-                </div>
-              </div>
-            </div>
-            <div className="mt-auto space-y-3">
-              {account.premiumCredits > 0 ? (
-                <div className="bg-gold-500/10 border border-gold-500/30 rounded-xl p-4 text-center">
-                  <Button
-                    fullWidth
-                    className="bg-gold-600 hover:bg-gold-500 text-navy-950 font-bold"
-                    onClick={handleUsePremiumCredit}
-                    disabled={!!loading}
-                  >
-                    {loading === "using_premium" ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <>
-                        <LinkIcon className="w-4 h-4 mr-2" /> Assign Credit
-                      </>
-                    )}
-                  </Button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => handleBuyPremium(BILLING_PRODUCT_IDS.PREMIUM_CREDIT_1, 1)}
-                    disabled={!!loading}
-                    className="p-3 rounded-xl border border-navy-700 bg-navy-800 hover:border-slate-500 transition-all"
-                  >
-                    <div className="text-sm font-bold text-slate-100">$14.99</div>
-                    <div className="text-[10px] text-slate-400">1 Case</div>
-                  </button>
-                  <button
-                    onClick={() => handleBuyPremium(BILLING_PRODUCT_IDS.PREMIUM_CREDIT_3, 3)}
-                    disabled={!!loading}
-                    className="p-3 rounded-xl border border-gold-500 bg-gold-500/10 hover:bg-gold-500/20 transition-all"
-                  >
-                    <div className="text-sm font-bold text-gold-400">$39.99</div>
-                    <div className="text-[10px] text-gold-400">3 Cases</div>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
+type PackageChoice = Extract<PlanType, "standard" | "premium">;
 
 const Home: React.FC = () => {
   const router = useRouter();
@@ -303,7 +72,11 @@ const Home: React.FC = () => {
   const [contextNotice, setContextNotice] = useState<string | null>(null);
   const [opponent, setOpponent] = useState<OpponentType>("Ex-Spouse");
   const [customAdversary, setCustomAdversary] = useState("");
-  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [standardSessions, setStandardSessions] = useState(0);
+  const [premiumSessions, setPremiumSessions] = useState(0);
+  const [selectedPackage, setSelectedPackage] = useState<PackageChoice>("standard");
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [isStartingAnalysis, setIsStartingAnalysis] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
 
   const opponentOptions = getSortedOpponentOptions();
@@ -315,12 +88,38 @@ const Home: React.FC = () => {
 
     store.getAccount().then((acc) => {
       if (acc.name) setUserName(acc.name);
+      setStandardSessions(acc.standardSessions || 0);
+      setPremiumSessions(acc.premiumSessions || 0);
     });
   }, []);
 
-  const handleAnalyzeStart = () => {
-    if (!text.trim()) return;
-    setShowPlanModal(true);
+  useEffect(() => {
+    if (!sessionError) return;
+    const selectedSessions = selectedPackage === "standard" ? standardSessions : premiumSessions;
+    if (selectedSessions > 0) {
+      setSessionError(null);
+    }
+  }, [selectedPackage, premiumSessions, sessionError, standardSessions]);
+
+  const handleAnalyzeStart = async () => {
+    if (isAnalyzeDisabled) return;
+    const sessionsRemaining = selectedPackage === "standard" ? standardSessions : premiumSessions;
+    if (sessionsRemaining <= 0) {
+      const message =
+        selectedPackage === "standard"
+          ? "No session credits available for Standard package. Click here to purchase Standard sessions to begin."
+          : "No session credits available for Premium package. Click here to purchase Premium sessions to begin.";
+      setSessionError(message);
+      toast(message, "error");
+      return;
+    }
+    setSessionError(null);
+    setIsStartingAnalysis(true);
+    try {
+      await createCase(selectedPackage);
+    } finally {
+      setIsStartingAnalysis(false);
+    }
   };
 
   const createCase = async (tier: PlanType) => {
@@ -330,7 +129,7 @@ const Home: React.FC = () => {
     }
     let finalOpponent = opponent;
     if (opponent === "Other" && customAdversary.trim()) finalOpponent = customAdversary.trim();
-    const limit = tier === "premium" ? 40 : 10;
+    const limit = tier === "demo" ? 3 : 0;
     const newCase: Case = {
       id: crypto.randomUUID(),
       title: `${finalOpponent} Conflict Case`,
@@ -343,17 +142,25 @@ const Home: React.FC = () => {
       note: text.slice(0, CONTEXT_LIMIT_CHARS),
     };
     await store.saveCase(newCase);
-    setShowPlanModal(false);
     router.push(`/case/${newCase.id}`);
   };
 
   const isAnalyzeDisabled =
-    isSummarizingContext || !text.trim() || (opponent === "Other" && !customAdversary.trim());
+    isStartingAnalysis ||
+    isSummarizingContext ||
+    !text.trim() ||
+    (opponent === "Other" && !customAdversary.trim());
+  const standardUnavailable = standardSessions <= 0;
+  const premiumUnavailable = premiumSessions <= 0;
+  const selectedSessions = selectedPackage === "standard" ? standardSessions : premiumSessions;
+  const showPackageNotice = selectedSessions <= 0 || !!sessionError;
+  const purchaseLabel =
+    selectedPackage === "standard" ? "Purchase Standard sessions" : "Purchase Premium sessions";
 
   const summarizeContextToLimit = async (rawText: string) => {
     setIsSummarizingContext(true);
     setContextNotice("Input exceeds limits and will be summarised with Claude Sonnet 4.5.");
-    toast("Input exceeds 40,000 characters. Summarizing with Claude Sonnet 4.5…", "info");
+    toast("Input exceeds 40,000 characters. Summarizing with Claude Sonnet 4.5...", "info");
     try {
       const response = await fetch("/api/context-summarize", {
         method: "POST",
@@ -422,25 +229,131 @@ const Home: React.FC = () => {
         </div>
       )}
 
-      <div
-        onClick={() => router.push("/demo")}
-        className="bg-gradient-to-r from-blue-900/30 to-navy-900 border-b border-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.1)] px-6 py-4 flex items-center justify-center gap-3 text-sm text-blue-100 cursor-pointer group hover:bg-blue-900/40 transition-colors"
-      >
-        <Zap className="w-5 h-5 text-blue-400 fill-blue-500/20 animate-pulse" />
-        <span className="font-bold tracking-wide text-sm md:text-base">New to Conflict Resolution?</span>
-        <span className="opacity-90 border-b border-blue-400/30 group-hover:border-blue-400 transition-colors">
-          Try the interactive <span className="text-gold-400 font-bold">Demo Mode</span>.
-        </span>
-      </div>
-
-      <div className="pt-8 pb-6 text-center space-y-3 px-6 md:text-left md:px-10">
-        <h1 className="text-3xl tracking-tight text-slate-100 md:text-4xl">
+      <div className="pt-8 pb-6 text-center px-6 md:text-left md:px-10">
+        <h1 className="flex flex-wrap items-baseline justify-center md:justify-start gap-2 text-3xl tracking-tight text-slate-100 md:text-4xl">
           <span className="font-serif font-bold text-gold-400">Start New Case</span>
+          <span className="text-sm text-slate-300 font-normal">
+            - Select an adversary and describe the situation to begin.
+          </span>
         </h1>
-        <p className="text-slate-300 text-sm leading-relaxed">Select an adversary and describe the situation to begin.</p>
       </div>
 
       <div className="flex-1 w-full max-w-7xl mx-auto px-5 md:px-10 pb-24 md:pb-10 flex flex-col gap-8">
+        <div className="rounded-2xl border border-navy-800 bg-navy-900/60 p-4 md:p-6 space-y-4">
+          <h2 className="flex flex-wrap items-baseline gap-2">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              Choose Your Package
+            </span>
+            <span className="text-sm text-slate-300">
+              Select which session credits to use for this analysis.
+            </span>
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3" role="radiogroup" aria-label="Package selection">
+            <label
+              className={`flex flex-col gap-3 rounded-xl border px-4 py-4 transition-all ${
+                selectedPackage === "standard"
+                  ? "border-blue-500/70 bg-blue-500/10 shadow-[0_0_0_1px_rgba(59,130,246,0.3)]"
+                  : "border-navy-800 bg-navy-950/30 hover:border-navy-700"
+              } ${standardUnavailable ? "opacity-80" : ""} cursor-pointer`}
+              title="Standard Package: faster, economical analysis powered by Claude Haiku."
+            >
+              <input
+                type="radio"
+                name="package"
+                className="sr-only"
+                checked={selectedPackage === "standard"}
+                onChange={() => setSelectedPackage("standard")}
+              />
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`mt-0.5 w-9 h-9 rounded-lg flex items-center justify-center border ${
+                      selectedPackage === "standard"
+                        ? "border-blue-400 bg-blue-500/20 text-blue-300"
+                        : "border-navy-700 bg-navy-900 text-slate-400"
+                    }`}
+                  >
+                    <Zap className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-slate-100">Standard Package</div>
+                    <div className="text-[10px] text-blue-300 uppercase tracking-widest">Claude Haiku</div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-widest text-slate-500">Sessions left</div>
+                  <div className="text-lg font-bold text-slate-100">{standardSessions}</div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>Faster, economical insights for everyday disputes.</span>
+                {standardUnavailable && (
+                  <span className="text-[10px] uppercase tracking-widest text-rose-300">No credits</span>
+                )}
+              </div>
+            </label>
+            <label
+              className={`flex flex-col gap-3 rounded-xl border px-4 py-4 transition-all ${
+                selectedPackage === "premium"
+                  ? "border-blue-500/70 bg-blue-500/10 shadow-[0_0_0_1px_rgba(59,130,246,0.3)]"
+                  : "border-navy-800 bg-navy-950/30 hover:border-navy-700"
+              } ${premiumUnavailable ? "opacity-80" : ""} cursor-pointer`}
+              title="Premium Package: deeper, higher-quality analysis powered by Claude Sonnet."
+            >
+              <input
+                type="radio"
+                name="package"
+                className="sr-only"
+                checked={selectedPackage === "premium"}
+                onChange={() => setSelectedPackage("premium")}
+              />
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`mt-0.5 w-9 h-9 rounded-lg flex items-center justify-center border ${
+                      selectedPackage === "premium"
+                        ? "border-gold-400 bg-gold-500/20 text-gold-300"
+                        : "border-navy-700 bg-navy-900 text-slate-400"
+                    }`}
+                  >
+                    <Crown className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-slate-100">Premium Package</div>
+                    <div className="text-[10px] text-gold-300 uppercase tracking-widest">Claude Sonnet</div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-widest text-slate-500">Sessions left</div>
+                  <div className="text-lg font-bold text-slate-100">{premiumSessions}</div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>Advanced reasoning for high-stakes conflicts.</span>
+                {premiumUnavailable && (
+                  <span className="text-[10px] uppercase tracking-widest text-rose-300">No credits</span>
+                )}
+              </div>
+            </label>
+          </div>
+          {showPackageNotice && selectedSessions <= 0 && (
+            <div className="text-xs text-rose-100 border border-rose-400/70 bg-rose-500/20 rounded-xl px-3 py-2 flex flex-wrap items-center gap-2">
+              <span>
+                No session credits available for{" "}
+                {selectedPackage === "standard" ? "Standard" : "Premium"} package.
+              </span>
+              <span className="font-semibold">Click here to</span>
+              <button
+                type="button"
+                onClick={() => router.push("/unlock/credits")}
+                className="text-rose-100 underline underline-offset-4 font-semibold"
+              >
+                {purchaseLabel}
+              </button>
+              <span>to begin.</span>
+            </div>
+          )}
+        </div>
         <div className="space-y-3">
           <Combobox
             label="01 Select Adversary"
@@ -507,18 +420,15 @@ const Home: React.FC = () => {
               className="w-full bg-navy-800 hover:bg-navy-700 text-slate-100 font-medium text-lg py-5 rounded-xl border border-navy-700 shadow-lg flex items-center justify-center gap-3 transition-all disabled:opacity-50"
             >
               <span className="font-serif italic text-gold-400">Start Analysis</span>
-              <ArrowRight className="w-5 h-5 text-slate-300" />
+              {isStartingAnalysis ? (
+                <Loader2 className="w-5 h-5 text-slate-300 animate-spin" />
+              ) : (
+                <ArrowRight className="w-5 h-5 text-slate-300" />
+              )}
             </button>
           </div>
         </div>
       </div>
-      {showPlanModal && (
-        <CaseSetupModal
-          onClose={() => setShowPlanModal(false)}
-          onConfirm={createCase}
-          opponent={opponent === "Other" ? customAdversary : opponent}
-        />
-      )}
     </div>
   );
 };
