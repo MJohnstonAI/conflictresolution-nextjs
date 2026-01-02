@@ -532,6 +532,7 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSession] = useState<any>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [premiumSessions, setPremiumSessions] = useState(0);
   const [standardSessions, setStandardSessions] = useState(0);
@@ -553,15 +554,22 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
       if (acc.theme) themeService.set(acc.theme);
     };
 
-    authService.getSession().then((nextSession) => {
-      setSession(nextSession);
-      loadAccount(nextSession);
-    });
+    authService
+      .getSession()
+      .then((nextSession) => {
+        setSession(nextSession);
+        loadAccount(nextSession);
+        setAuthReady(true);
+      })
+      .catch(() => {
+        setAuthReady(true);
+      });
     const {
       data: { subscription },
     } = authService.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       loadAccount(nextSession);
+      setAuthReady(true);
     });
 
     return () => subscription.unsubscribe();
@@ -623,6 +631,60 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
     { icon: Settings, label: "Settings", action: () => setShowSettings(true) },
     { icon: HelpCircle, label: "Help Center", path: "/help" },
   ];
+
+  const baseMobileItems = navItems.filter(
+    (item) => item.path && item.showOnMobile !== false && item.label !== "Settings"
+  );
+  const mobileNavItems: Array<{
+    key: string;
+    label: string;
+    icon: React.ElementType;
+    path?: string;
+    requiresAuth?: boolean;
+    disabled?: boolean;
+  }> = [];
+
+  if (!authReady) {
+    mobileNavItems.push({
+      key: "auth-check",
+      label: "Checking",
+      icon: Loader2,
+      disabled: true,
+    });
+  } else if (!session) {
+    mobileNavItems.push({
+      key: "auth",
+      label: "Sign In",
+      icon: LogIn,
+      path: "/auth",
+    });
+  }
+
+  mobileNavItems.push({
+    key: "demo",
+    label: "Demo",
+    icon: Zap,
+    path: "/demo",
+  });
+
+  baseMobileItems.forEach((item) => {
+    mobileNavItems.push({
+      key: item.path || item.label,
+      label: item.label,
+      icon: item.icon,
+      path: item.path,
+      requiresAuth: item.path === "/vault" || item.path === "/ledger",
+    });
+  });
+
+  const trackMobileNavClick = (label: string, destination?: string) => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("mobile_nav_click", {
+        detail: { destination: destination || "action", label },
+      })
+    );
+  };
 
   const handleSignOut = async () => {
     await authService.signOut();
@@ -755,36 +817,55 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
         {children}
       </main>
       <nav className="md:hidden fixed bottom-0 w-full bg-navy-950/90 backdrop-blur-lg border-t border-navy-800 pb-safe-area z-50 transition-colors duration-300">
-        <div className="flex justify-around items-center h-16 px-2">
-          {navItems
-            .filter((i) => i.path && i.showOnMobile !== false)
-            .map((item) => {
-              const requiresAuth = item.path === "/vault" || item.path === "/ledger";
-              const isDisabled = requiresAuth && !session;
-              const isActive = !isDisabled && pathname === item.path;
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.path}
-                  onClick={() => {
-                    if (!item.path || isDisabled) return;
-                    router.push(item.path);
-                  }}
-                  className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-colors ${
-                    isDisabled ? "text-slate-600 cursor-not-allowed" : isActive ? "text-gold-500" : "text-slate-500"
-                  }`}
-                >
-                  <Icon className={`w-6 h-6 ${isActive ? "scale-110 transition-transform" : ""}`} strokeWidth={isActive ? 2.5 : 2} />
-                  <span className="text-[10px] font-medium">{item.label}</span>
-                </button>
-              );
-            })}
+        <div className="flex items-center h-16 px-2 gap-2 overflow-x-auto scrollbar-thin scrollbar-thumb-navy-700/70">
+          {mobileNavItems.map((item) => {
+            const isDisabled = Boolean(item.disabled || (item.requiresAuth && !session));
+            const isActive = !isDisabled && item.path && pathname === item.path;
+            const Icon = item.icon;
+            const title = isDisabled ? "Sign in to access" : item.label;
+            return (
+              <button
+                key={item.key}
+                onClick={() => {
+                  if (isDisabled) return;
+                  trackMobileNavClick(item.label, item.path);
+                  if (!item.path) return;
+                  router.push(item.path);
+                }}
+                aria-disabled={isDisabled}
+                title={title}
+                className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-colors shrink-0 ${
+                  isDisabled
+                    ? "text-slate-600 cursor-not-allowed"
+                    : isActive
+                      ? "text-gold-500"
+                      : item.key === "auth"
+                        ? "text-white"
+                        : "text-slate-500"
+                }`}
+              >
+                <Icon
+                  className={`w-6 h-6 ${
+                    isActive ? "scale-110 transition-transform" : ""
+                  } ${item.key === "auth-check" ? "animate-spin" : ""}`}
+                  strokeWidth={isActive ? 2.5 : 2}
+                />
+                <span className="text-[9px] font-medium leading-tight text-center whitespace-normal">
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
           <button
-            onClick={() => setShowSettings(true)}
-            className="flex flex-col items-center justify-center w-16 h-full gap-1 transition-colors text-slate-500"
+            onClick={() => {
+              trackMobileNavClick("Settings");
+              setShowSettings(true);
+            }}
+            className="flex flex-col items-center justify-center w-16 h-full gap-1 transition-colors text-slate-500 shrink-0"
+            title="Settings"
           >
             <Settings className="w-6 h-6" strokeWidth={2} />
-            <span className="text-[10px] font-medium">Settings</span>
+            <span className="text-[9px] font-medium leading-tight text-center whitespace-normal">Settings</span>
           </button>
         </div>
       </nav>
