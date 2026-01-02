@@ -6,10 +6,10 @@
 - Settings is a modal with theme selection; admin accounts see model controls.
 
 ## Start new case (/)
-- Select an adversary; choose Other to enter a custom name.
 - Paste or type the conflict context (up to 40,000 characters).
-- Start Analysis opens the plan selector (Standard vs Premium).
-- Creates a case and enters the War Room.
+- Choose Standard or Premium below the case description; a recommendation appears only when confident.
+- Start Analysis creates the case and opens the Mission Profile.
+- Choose or override the adversary in Mission Profile (with AI default when clear).
 
 ## Authentication (/auth)
 - Sign in, sign up (magic link), password reset, and password update flows.

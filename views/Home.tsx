@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Combobox } from "@/components/DesignSystem";
 import { toast } from "@/components/DesignSystem";
 import { store } from "@/services/store";
-import { Case, OpponentType, PlanType } from "@/types";
+import { Case, PlanType } from "@/types";
 import {
   ArrowRight,
   Crown,
@@ -16,45 +15,8 @@ import {
 import { consumeRouteState } from "@/lib/route-state";
 
 const CONTEXT_LIMIT_CHARS = 40000;
-
-const getSortedOpponentOptions = (): OpponentType[] => {
-  const opts: OpponentType[] = [
-    "Partner",
-    "Co-Parent",
-    "Ex Boy/Girlfriend",
-    "Ex-Spouse",
-    "Boss",
-    "Landlord",
-    "Friend",
-    "Family",
-    "In-Law",
-    "Neighbor",
-    "Colleague",
-    "Bank",
-    "Client",
-    "Contractor",
-    "Tenant",
-    "Seller",
-    "Buyer",
-    "Roommate",
-    "HOA Board",
-    "Insurance Company",
-    "Medical Aid Provider",
-    "Employee",
-    "Customer Support",
-    "Wife",
-    "Husband",
-    "Boyfriend",
-    "Girlfriend",
-    "Company",
-    "School",
-    "Teacher",
-    "Customer",
-    "Car Dealership",
-    "Other",
-  ];
-  return opts.sort();
-};
+const MIN_RECOMMEND_CHARS = 220;
+const MIN_RECOMMEND_WORDS = 35;
 
 const SEO: React.FC<{ title: string }> = ({ title }) => {
   useEffect(() => {
@@ -65,13 +27,89 @@ const SEO: React.FC<{ title: string }> = ({ title }) => {
 
 type PackageChoice = Extract<PlanType, "standard" | "premium">;
 
+const PREMIUM_KEYWORDS = [
+  "lawsuit",
+  "court",
+  "attorney",
+  "lawyer",
+  "legal",
+  "custody",
+  "divorce",
+  "restraining order",
+  "eviction",
+  "contract",
+  "settlement",
+  "harassment",
+  "threat",
+  "police",
+  "fraud",
+  "invoice",
+  "payment",
+  "insurance",
+  "termination",
+  "discrimination",
+  "abuse",
+  "assault",
+  "stalking",
+  "foreclosure",
+  "debt",
+];
+
+const STANDARD_KEYWORDS = [
+  "roommate",
+  "friend",
+  "neighbor",
+  "family",
+  "coworker",
+  "co-worker",
+  "partner",
+  "boyfriend",
+  "girlfriend",
+  "misunderstanding",
+  "communication",
+  "boundary",
+  "apology",
+  "schedule",
+];
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const countKeywordHits = (content: string, keywords: string[]) => {
+  let hits = 0;
+  for (const keyword of keywords) {
+    if (keyword.includes(" ")) {
+      if (content.includes(keyword)) hits += 1;
+      continue;
+    }
+    const regex = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, "i");
+    if (regex.test(content)) hits += 1;
+  }
+  return hits;
+};
+
+const getPackageRecommendation = (rawText: string): PackageChoice | null => {
+  const trimmed = rawText.trim();
+  if (!trimmed) return null;
+  if (trimmed.length < MIN_RECOMMEND_CHARS) return null;
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  if (wordCount < MIN_RECOMMEND_WORDS) return null;
+
+  const normalized = trimmed.toLowerCase();
+  const premiumHits = countKeywordHits(normalized, PREMIUM_KEYWORDS);
+  const standardHits = countKeywordHits(normalized, STANDARD_KEYWORDS);
+
+  if (premiumHits >= 2) return "premium";
+  if (premiumHits === 1 && standardHits === 0) return "premium";
+  if (standardHits >= 2 && premiumHits === 0) return "standard";
+  return null;
+};
+
 const Home: React.FC = () => {
   const router = useRouter();
   const [text, setText] = useState("");
   const [isSummarizingContext, setIsSummarizingContext] = useState(false);
   const [contextNotice, setContextNotice] = useState<string | null>(null);
-  const [opponent, setOpponent] = useState<OpponentType>("Ex-Spouse");
-  const [customAdversary, setCustomAdversary] = useState("");
+  const [prefillOpponent, setPrefillOpponent] = useState<string | null>(null);
   const [standardSessions, setStandardSessions] = useState(0);
   const [premiumSessions, setPremiumSessions] = useState(0);
   const [selectedPackage, setSelectedPackage] = useState<PackageChoice>("standard");
@@ -79,12 +117,10 @@ const Home: React.FC = () => {
   const [isStartingAnalysis, setIsStartingAnalysis] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
 
-  const opponentOptions = getSortedOpponentOptions();
-
   useEffect(() => {
-    const state = consumeRouteState<{ templateText?: string; opponentType?: OpponentType }>("/");
+    const state = consumeRouteState<{ templateText?: string; opponentType?: string }>("/");
     if (state?.templateText) setText(state.templateText);
-    if (state?.opponentType) setOpponent(state.opponentType);
+    if (state?.opponentType) setPrefillOpponent(state.opponentType);
 
     store.getAccount().then((acc) => {
       if (acc.name) setUserName(acc.name);
@@ -128,11 +164,12 @@ const Home: React.FC = () => {
       router.push("/demo");
       return;
     }
-    let finalOpponent = opponent;
-    if (opponent === "Other" && customAdversary.trim()) finalOpponent = customAdversary.trim();
+    const finalOpponent = prefillOpponent?.trim() || "Other";
+    const title =
+      finalOpponent && finalOpponent !== "Other" ? `${finalOpponent} Conflict Case` : "Conflict Case";
     const newCase: Case = {
       id: crypto.randomUUID(),
-      title: `${finalOpponent} Conflict Case`,
+      title,
       opponentType: finalOpponent,
       createdAt: new Date().toISOString(),
       roundsLimit: limit,
@@ -146,16 +183,17 @@ const Home: React.FC = () => {
   };
 
   const isAnalyzeDisabled =
-    isStartingAnalysis ||
-    isSummarizingContext ||
-    !text.trim() ||
-    (opponent === "Other" && !customAdversary.trim());
+    isStartingAnalysis || isSummarizingContext || !text.trim();
   const standardUnavailable = standardSessions <= 0;
   const premiumUnavailable = premiumSessions <= 0;
   const selectedSessions = selectedPackage === "standard" ? standardSessions : premiumSessions;
   const showPackageNotice = selectedSessions <= 0 || !!sessionError;
   const purchaseLabel =
     selectedPackage === "standard" ? "Purchase Standard sessions" : "Purchase Premium sessions";
+  const packageRecommendation = useMemo(() => getPackageRecommendation(text), [text]);
+  const showRecommendation = Boolean(packageRecommendation && selectedPackage !== "premium");
+  const showStandardRecommendation = showRecommendation && packageRecommendation === "standard";
+  const showPremiumRecommendation = showRecommendation && packageRecommendation === "premium";
 
   const summarizeContextToLimit = async (rawText: string) => {
     setIsSummarizingContext(true);
@@ -233,16 +271,50 @@ const Home: React.FC = () => {
         <h1 className="flex flex-wrap items-baseline justify-center md:justify-start gap-2 text-3xl tracking-tight text-slate-100 md:text-4xl">
           <span className="font-serif font-bold text-gold-400">Start New Case</span>
           <span className="text-sm text-slate-300 font-normal">
-            - Select an adversary and describe the situation to begin.
+            - Describe the situation to begin.
           </span>
         </h1>
       </div>
 
-      <div className="flex-1 w-full max-w-7xl mx-auto px-5 md:px-10 pb-24 md:pb-10 flex flex-col gap-8">
+      <div className="flex-1 w-full max-w-7xl mx-auto px-5 md:px-10 pb-24 md:pb-10 flex flex-col gap-6">
+        <div className="space-y-3 flex flex-col flex-1">
+          <div className="flex items-center justify-between gap-3">
+            <label className="text-[10px] font-bold uppercase tracking-widest pl-1 case-step-label">
+              01 Describe the Conflict Case
+            </label>
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+              {text.length.toLocaleString()} / {CONTEXT_LIMIT_CHARS.toLocaleString()}
+            </span>
+          </div>
+          {contextNotice && (
+            <div className="text-xs text-gold-400/90 border border-gold-500/20 bg-gold-500/5 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span>{contextNotice}</span>
+                {isSummarizingContext && <Loader2 className="w-4 h-4 animate-spin text-gold-400" />}
+              </div>
+            </div>
+          )}
+          <textarea
+            className="w-full bg-navy-950 text-slate-100 border border-navy-800 rounded-2xl p-6 text-base outline-none transition-all resize-none min-h-[180px] flex-1"
+            placeholder="Describe the nature of your conflict..."
+            value={text}
+            onPaste={handleContextPaste}
+            onChange={(e) => {
+              const next = e.target.value;
+              if (next.length <= CONTEXT_LIMIT_CHARS) {
+                setText(next);
+                setContextNotice(null);
+                return;
+              }
+              setText(next.slice(0, CONTEXT_LIMIT_CHARS));
+              setContextNotice("Input is limited to 40,000 characters.");
+            }}
+          />
+        </div>
         <div className="rounded-2xl border border-navy-800 bg-navy-900/60 p-4 md:p-6 space-y-4">
           <h2 className="flex flex-wrap items-baseline gap-2">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-              Choose Your Package
+            <span className="text-[10px] font-bold uppercase tracking-widest case-step-label">
+              02 Choose Your Package
             </span>
             <span className="text-sm text-slate-300">
               Select which session credits to use for this analysis.
@@ -280,7 +352,12 @@ const Home: React.FC = () => {
                     <div className="text-[10px] text-blue-300 uppercase tracking-widest">Claude Haiku</div>
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="flex flex-col items-end gap-1 text-right">
+                  {showStandardRecommendation && (
+                    <span className="text-[9px] uppercase tracking-widest font-bold text-blue-300 bg-blue-500/10 border border-blue-500/30 px-2 py-0.5 rounded">
+                      Recommended
+                    </span>
+                  )}
                   <div className="text-[10px] uppercase tracking-widest text-slate-500">Sessions left</div>
                   <div className="text-lg font-bold text-slate-100">{standardSessions}</div>
                 </div>
@@ -323,7 +400,12 @@ const Home: React.FC = () => {
                     <div className="text-[10px] text-gold-300 uppercase tracking-widest">Claude Sonnet</div>
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="flex flex-col items-end gap-1 text-right">
+                  {showPremiumRecommendation && (
+                    <span className="text-[9px] uppercase tracking-widest font-bold text-gold-300 bg-gold-500/10 border border-gold-500/30 px-2 py-0.5 rounded">
+                      Recommended
+                    </span>
+                  )}
                   <div className="text-[10px] uppercase tracking-widest text-slate-500">Sessions left</div>
                   <div className="text-lg font-bold text-slate-100">{premiumSessions}</div>
                 </div>
@@ -354,79 +436,19 @@ const Home: React.FC = () => {
             </div>
           )}
         </div>
-        <div className="space-y-3">
-          <Combobox
-            label="01 Select Adversary"
-            options={opponentOptions}
-            value={opponent}
-            onChange={(val: string) => setOpponent(val as OpponentType)}
-          />
-          {opponent === "Other" && (
-            <div className="animate-fade-in mt-2">
-              <label className="text-[10px] font-bold text-gold-500 uppercase tracking-widest pl-1">
-                Specify Adversary Name
-              </label>
-              <div className="mt-1.5">
-                <input
-                  autoFocus
-                  type="text"
-                  value={customAdversary}
-                  onChange={(e) => setCustomAdversary(e.target.value)}
-                  placeholder="e.g. Bob"
-                  className="w-full bg-navy-900/50 border border-gold-500/50 rounded-lg p-3 text-sm text-slate-200 outline-none"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-3 flex flex-col flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">
-              02 Describe the Conflict Case
-            </label>
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-              {text.length.toLocaleString()} / {CONTEXT_LIMIT_CHARS.toLocaleString()}
-            </span>
-          </div>
-          {contextNotice && (
-            <div className="text-xs text-gold-400/90 border border-gold-500/20 bg-gold-500/5 rounded-xl px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <span>{contextNotice}</span>
-                {isSummarizingContext && <Loader2 className="w-4 h-4 animate-spin text-gold-400" />}
-              </div>
-            </div>
-          )}
-          <textarea
-            className="w-full bg-navy-950 text-slate-100 border border-navy-800 rounded-2xl p-6 text-base outline-none transition-all resize-none min-h-[180px] flex-1"
-            placeholder="Describe the nature of your conflict..."
-            value={text}
-            onPaste={handleContextPaste}
-            onChange={(e) => {
-              const next = e.target.value;
-              if (next.length <= CONTEXT_LIMIT_CHARS) {
-                setText(next);
-                setContextNotice(null);
-                return;
-              }
-              setText(next.slice(0, CONTEXT_LIMIT_CHARS));
-              setContextNotice("Input is limited to 40,000 characters.");
-            }}
-          />
-          <div className="pt-2">
-            <button
-              onClick={handleAnalyzeStart}
-              disabled={isAnalyzeDisabled}
-              className="w-full bg-navy-800 hover:bg-navy-700 text-slate-100 font-medium text-lg py-5 rounded-xl border border-navy-700 shadow-lg flex items-center justify-center gap-3 transition-all disabled:opacity-50"
-            >
-              <span className="font-serif italic text-gold-400">Start Analysis</span>
-              {isStartingAnalysis ? (
-                <Loader2 className="w-5 h-5 text-slate-300 animate-spin" />
-              ) : (
-                <ArrowRight className="w-5 h-5 text-slate-300" />
-              )}
-            </button>
-          </div>
+        <div className="pt-2">
+          <button
+            onClick={handleAnalyzeStart}
+            disabled={isAnalyzeDisabled}
+            className="w-full bg-navy-800 hover:bg-navy-700 text-slate-100 font-medium text-lg py-5 rounded-xl border border-navy-700 shadow-lg flex items-center justify-center gap-3 transition-all disabled:opacity-50"
+          >
+            <span className="font-serif italic text-gold-400">Start Analysis</span>
+            {isStartingAnalysis ? (
+              <Loader2 className="w-5 h-5 text-slate-300 animate-spin" />
+            ) : (
+              <ArrowRight className="w-5 h-5 text-slate-300" />
+            )}
+          </button>
         </div>
       </div>
     </div>

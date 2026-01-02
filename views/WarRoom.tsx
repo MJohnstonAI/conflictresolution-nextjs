@@ -7,10 +7,123 @@ import { User, RefreshCw, AlertTriangle, Shield, Scale, Mountain, Flame, ArrowLe
 import { store } from '../services/store';
 import { analyzeConflict } from '../services/ai';
 import { exportService } from '../services/export';
-import { Case, Round, Mode, UserAccount } from '../types';
+import { Case, Round, Mode, OpponentType, UserAccount } from '../types';
 import { Button, Badge, RiskGauge } from '../components/UI';
-import { toast } from '../components/DesignSystem';
+import { toast, Combobox } from '../components/DesignSystem';
 import { DEMO_SCENARIOS } from '../services/demo_scenarios';
+
+const getSortedOpponentOptions = (): OpponentType[] => {
+    const opts: OpponentType[] = [
+        "Partner",
+        "Co-Parent",
+        "Ex Boy/Girlfriend",
+        "Ex-Spouse",
+        "Boss",
+        "Landlord",
+        "Friend",
+        "Family",
+        "In-Law",
+        "Neighbor",
+        "Colleague",
+        "Bank",
+        "Client",
+        "Contractor",
+        "Tenant",
+        "Seller",
+        "Buyer",
+        "Roommate",
+        "HOA Board",
+        "Insurance Company",
+        "Medical Aid Provider",
+        "Employee",
+        "Customer Support",
+        "Wife",
+        "Husband",
+        "Boyfriend",
+        "Girlfriend",
+        "Company",
+        "School",
+        "Teacher",
+        "Customer",
+        "Car Dealership",
+        "Other",
+    ];
+    return opts.sort();
+};
+
+type OpponentSignal = {
+    type: OpponentType;
+    keywords: string[];
+    minHits: number;
+};
+
+const OPPONENT_SIGNALS: OpponentSignal[] = [
+    { type: "Landlord", keywords: ["landlord", "property manager", "lease", "security deposit"], minHits: 1 },
+    { type: "Tenant", keywords: ["tenant", "renter", "leaseholder"], minHits: 1 },
+    { type: "Boss", keywords: ["boss", "manager", "supervisor", "employer", "hr"], minHits: 1 },
+    { type: "Co-Parent", keywords: ["co-parent", "coparent", "custody", "visitation"], minHits: 1 },
+    { type: "Ex-Spouse", keywords: ["ex-spouse", "ex spouse", "divorce", "alimony"], minHits: 1 },
+    { type: "Ex Boy/Girlfriend", keywords: ["ex-boyfriend", "ex boyfriend", "ex-girlfriend", "ex girlfriend", "ex partner"], minHits: 1 },
+    { type: "Roommate", keywords: ["roommate", "flatmate", "housemate"], minHits: 1 },
+    { type: "Neighbor", keywords: ["neighbor", "neighbour", "next door"], minHits: 1 },
+    { type: "Client", keywords: ["client"], minHits: 1 },
+    { type: "Customer Support", keywords: ["customer support", "support ticket", "help desk"], minHits: 1 },
+    { type: "Insurance Company", keywords: ["insurance"], minHits: 1 },
+    { type: "Bank", keywords: ["bank", "loan"], minHits: 1 },
+    { type: "Contractor", keywords: ["contractor", "freelancer"], minHits: 1 },
+    { type: "Teacher", keywords: ["teacher", "professor"], minHits: 1 },
+    { type: "School", keywords: ["school", "principal"], minHits: 1 },
+    { type: "HOA Board", keywords: ["hoa", "homeowners association"], minHits: 1 },
+    { type: "Medical Aid Provider", keywords: ["medical", "hospital", "clinic"], minHits: 1 },
+    { type: "Friend", keywords: ["friend", "best friend"], minHits: 2 },
+    { type: "Family", keywords: ["mother", "father", "parent", "sister", "brother", "aunt", "uncle", "cousin"], minHits: 2 },
+    { type: "Colleague", keywords: ["colleague", "coworker", "co-worker", "teammate"], minHits: 2 },
+];
+
+const escapeOpponentRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const countOpponentHits = (content: string, keywords: string[]) => {
+    let hits = 0;
+    for (const keyword of keywords) {
+        if (keyword.includes(" ")) {
+            if (content.includes(keyword)) hits += 1;
+            continue;
+        }
+        const regex = new RegExp(`\\b${escapeOpponentRegExp(keyword)}\\b`, "i");
+        if (regex.test(content)) hits += 1;
+    }
+    return hits;
+};
+
+const inferOpponentFromNote = (note: string): OpponentType | null => {
+    const trimmed = note.trim();
+    if (!trimmed) return null;
+    if (trimmed.length < 160) return null;
+    const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+    if (wordCount < 25) return null;
+
+    const normalized = trimmed.toLowerCase();
+    let best: OpponentType | null = null;
+    let bestHits = 0;
+
+    for (const signal of OPPONENT_SIGNALS) {
+        const hits = countOpponentHits(normalized, signal.keywords);
+        if (hits >= signal.minHits && hits > bestHits) {
+            best = signal.type;
+            bestHits = hits;
+        }
+    }
+
+    return bestHits > 0 ? best : null;
+};
+
+const deriveCaseTitle = (currentTitle: string, opponent: string) => {
+    if (!opponent || opponent === "Other") return currentTitle || "Conflict Case";
+    if (!currentTitle || currentTitle === "Conflict Case" || currentTitle.endsWith(" Conflict Case")) {
+        return `${opponent} Conflict Case`;
+    }
+    return currentTitle;
+};
 
 // --- SUB-COMPONENTS ---
 
@@ -47,11 +160,11 @@ const InputSection: React.FC<InputSectionProps> = memo(({
     }, [inputText]);
 
     const containerClasses = isHero 
-        ? "bg-navy-900/80 border border-gold-500/30 shadow-[0_0_40px_-10px_rgba(245,158,11,0.1)] p-6 md:p-8 rounded-2xl backdrop-blur-sm h-full flex flex-col justify-center"
+        ? "bg-navy-900/80 border border-gold-500/30 shadow-[0_0_40px_-10px_rgba(245,158,11,0.1)] p-6 md:p-8 rounded-2xl backdrop-blur-sm w-full flex flex-col"
         : "h-full flex flex-col justify-center max-w-4xl mx-auto w-full";
 
     const textareaClasses = isHero
-        ? `w-full border border-navy-700 rounded-xl p-6 text-lg outline-none transition-all resize-none flex-1 min-h-[200px] focus:border-gold-500/50 focus:shadow-[inset_0_2px_10px_rgba(0,0,0,0.3)] ${
+        ? `w-full border border-navy-700 rounded-xl p-6 text-lg outline-none transition-all resize-none flex-1 min-h-[320px] focus:border-gold-500/50 focus:shadow-[inset_0_2px_10px_rgba(0,0,0,0.3)] ${
             isDemo
                 ? "bg-navy-950 text-slate-100 placeholder-slate-500"
                 : "bg-navy-950/50 text-slate-200 placeholder-slate-600 focus:bg-navy-950"
@@ -76,45 +189,54 @@ const InputSection: React.FC<InputSectionProps> = memo(({
 
     return (
         <div className={containerClasses}>
-            {/* Identity Bar */}
-            <div className={`flex items-center gap-3 ${isHero ? 'mb-6' : 'bg-navy-950 border border-navy-800 p-2 rounded-xl mb-4'}`}>
-                <div className={`hidden md:flex flex-col items-start justify-center ${isHero ? '' : 'px-4 py-1.5 bg-navy-900 rounded-lg border border-navy-800 min-w-[100px]'}`}>
-                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono">Adversary</span>
-                    <div className="flex items-center gap-2">
-                         <span className={`${isHero ? 'text-xl text-slate-100' : 'text-sm text-gold-500'} font-bold truncate max-w-[200px]`}>
-                             {activeCase.opponentType}
-                         </span>
-                         {isHero && <Badge color="gray" >Target</Badge>}
+            {!isHero && (
+                <div className={`flex items-center gap-3 ${isHero ? 'mb-6' : 'bg-navy-950 border border-navy-800 p-2 rounded-xl mb-4'}`}>
+                    <div className={`hidden md:flex flex-col items-start justify-center ${isHero ? '' : 'px-4 py-1.5 bg-navy-900 rounded-lg border border-navy-800 min-w-[100px]'}`}>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono">Adversary</span>
+                        <div className="flex items-center gap-2">
+                             <span className={`${isHero ? 'text-xl text-slate-100' : 'text-sm text-gold-500'} font-bold truncate max-w-[200px]`}>
+                                 {activeCase.opponentType}
+                             </span>
+                             {isHero && <Badge color="gray" >Target</Badge>}
+                        </div>
+                    </div>
+                    
+                    <div className="flex-1 relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <input 
+                            type="text" 
+                            placeholder={activeCase.opponentType === 'Other' ? "Enter Name" : `${activeCase.opponentType}'s Name (Optional)`}
+                            value={senderName}
+                            onChange={(e) => setSenderName(e.target.value)}
+                            disabled={isAnalyzing || isCaseClosed || !!activeCase.demoScenarioId}
+                            autoComplete="off"
+                            className={`w-full bg-transparent border-none rounded-lg pl-10 pr-4 py-2.5 text-sm text-slate-300 placeholder-slate-500 focus:ring-1 focus:ring-gold-500/50 outline-none ${isHero ? 'bg-navy-950 border border-navy-800' : 'bg-navy-900'}`}
+                        />
                     </div>
                 </div>
-                
-                <div className="flex-1 relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <input 
-                        type="text" 
-                        placeholder={activeCase.opponentType === 'Other' ? "Enter Name" : `${activeCase.opponentType}'s Name (Optional)`}
-                        value={senderName}
-                        onChange={(e) => setSenderName(e.target.value)}
-                        disabled={isAnalyzing || isCaseClosed || !!activeCase.demoScenarioId}
-                        autoComplete="off"
-                        className={`w-full bg-transparent border-none rounded-lg pl-10 pr-4 py-2.5 text-sm text-slate-300 placeholder-slate-500 focus:ring-1 focus:ring-gold-500/50 outline-none ${isHero ? 'bg-navy-950 border border-navy-800' : 'bg-navy-900'}`}
-                    />
-                </div>
-            </div>
+            )}
 
             <div className="space-y-3 flex-1 flex flex-col">
-                <label className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-gold-500 uppercase tracking-widest pl-1 font-mono flex items-center gap-2">
-                        {isHero ? <Activity className="w-3 h-3" /> : null}
-                        {isDemo
-                            ? `DEMO ROUND ${roundNumber} // READY TO PLAY`
-                            : isHero
-                                ? "AWAITING TRANSMISSION (EVIDENCE)"
-                                : `ROUND ${roundNumber} // AWAITING INPUT`}
-                    </span>
-                    {inputText.length > 0 && <span className="text-[10px] font-mono text-slate-500">{inputText.length} chars</span>}
+                <label className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-[10px] font-bold text-gold-500 uppercase tracking-widest pl-1 flex items-center gap-2">
+                            {isHero ? <Activity className="w-3 h-3" /> : null}
+                            {isDemo
+                                ? `DEMO ROUND ${roundNumber} // READY TO PLAY`
+                                : isHero
+                                    ? "05 Awaiting Transmission (Evidence)"
+                                    : `ROUND ${roundNumber} // AWAITING INPUT`}
+                        </span>
+                        {isHero && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-base font-semibold text-slate-100">{activeCase.opponentType}</span>
+                                <Badge color="gray">Target</Badge>
+                            </div>
+                        )}
+                    </div>
+                    {inputText.length > 0 && <span className="text-[10px] text-slate-500">{inputText.length} chars</span>}
                 </label>
-                
+
                 <textarea 
                     value={inputText}
                     onChange={(e) => {
@@ -395,7 +517,10 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const [senderName, setSenderName] = useState("");
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisError, setAnalysisError] = useState<string | null>(null);
+    const [selectedOpponent, setSelectedOpponent] = useState<string>("");
+    const [customOpponent, setCustomOpponent] = useState("");
     const analyzeInFlight = useRef(false);
+    const opponentOptions = useMemo(() => getSortedOpponentOptions(), []);
     const demoScenario = useMemo(
         () => (activeCase?.demoScenarioId ? DEMO_SCENARIOS[activeCase.demoScenarioId] : undefined),
         [activeCase?.demoScenarioId]
@@ -424,12 +549,29 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                     await store.saveCase(caseData);
                 }
             }
+            if (caseData.opponentType === "Other" && r.length === 0) {
+                const suggestedOpponent = inferOpponentFromNote(caseData.note || "");
+                if (suggestedOpponent) {
+                    caseData = {
+                        ...caseData,
+                        opponentType: suggestedOpponent,
+                        title: deriveCaseTitle(caseData.title, suggestedOpponent),
+                    };
+                    await store.saveCase(caseData);
+                }
+            }
 
             setAllCases(cases);
             setActiveCase(caseData);
             setRounds(r);
             setAccount(acc);
             setLoading(false);
+            setSelectedOpponent(caseData.opponentType || "");
+            if (caseData.opponentType && !opponentOptions.includes(caseData.opponentType as OpponentType)) {
+                setCustomOpponent(caseData.opponentType);
+            } else if (caseData.opponentType !== "Other") {
+                setCustomOpponent("");
+            }
             
             // Set initial view to the latest round if exists
             if (r.length > 0) {
@@ -440,13 +582,45 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             }
         };
         load();
-    }, [caseId, id, router]);
+    }, [caseId, id, opponentOptions, router]);
 
     useEffect(() => {
         if (!isDemo || !demoScenario) return;
         const nextRound = demoScenario.rounds[rounds.length];
         setInputText(nextRound ? nextRound.opponentText : "");
     }, [isDemo, demoScenario, rounds.length]);
+
+    useEffect(() => {
+        if (!selectedOpponent) return;
+        if (!opponentOptions.includes(selectedOpponent as OpponentType)) {
+            setCustomOpponent(selectedOpponent);
+            return;
+        }
+        if (selectedOpponent !== "Other") setCustomOpponent("");
+    }, [opponentOptions, selectedOpponent]);
+
+    const updateCaseOpponent = async (nextOpponent: string) => {
+        if (!activeCase) return;
+        const updatedCase = {
+            ...activeCase,
+            opponentType: nextOpponent,
+            title: deriveCaseTitle(activeCase.title, nextOpponent),
+        };
+        setActiveCase(updatedCase);
+        await store.saveCase(updatedCase);
+    };
+
+    const handleOpponentChange = async (nextOpponent: string) => {
+        setSelectedOpponent(nextOpponent);
+        await updateCaseOpponent(nextOpponent);
+    };
+
+    const handleCustomOpponentCommit = async () => {
+        const trimmed = customOpponent.trim();
+        if (!trimmed) return;
+        setSelectedOpponent(trimmed);
+        await updateCaseOpponent(trimmed);
+    };
 
     // Create a mapping for sequential case numbers based on chronological order (Replicated from Vault)
     const caseNumberMap = useMemo(() => {
@@ -655,6 +829,9 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
               ? "anthropic/claude-haiku-4.5"
               : "demo-script");
     const demoHasNext = isDemo && !!demoScenario?.rounds[rounds.length];
+    const showCustomOpponentInput =
+        selectedOpponent === "Other" ||
+        (selectedOpponent && !opponentOptions.includes(selectedOpponent as OpponentType));
 
     return (
         <div className="w-full h-full">
@@ -728,9 +905,6 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        <span className="hidden sm:inline text-[10px] font-mono text-gold-500 font-bold uppercase tracking-widest bg-navy-900 px-3 py-1.5 rounded border border-navy-800">
-                             {isInputMode ? "AWAITING TRANSMISSION" : `VIEWING ROUND ${viewIndex + 1}`}
-                        </span>
                         {!isInputMode && (
                             <button 
                             onClick={handleDownload}
@@ -747,22 +921,75 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                     {isInputMode ? (
                         <div className="h-full overflow-y-auto custom-scrollbar">
                             {rounds.length === 0 ? (
-                                 <div className="h-full flex flex-col items-center max-w-5xl mx-auto pt-4 pb-10">
-                                     {/* Mission Brief */}
-                                     <div className="w-full bg-navy-900 border border-navy-800 rounded-xl p-5 mb-6 relative overflow-hidden shrink-0">
+                                 <div className="h-full flex flex-col items-center max-w-5xl mx-auto pt-4 pb-10 gap-6">
+                                     <div className="w-full bg-navy-900 border border-navy-800 rounded-xl p-5 relative overflow-hidden shrink-0">
                                          <div className="absolute top-0 right-0 p-4 opacity-5"><Target className="w-24 h-24 text-gold-500" /></div>
                                          <div className="relative z-10 flex items-start gap-4">
                                              <div className="p-3 bg-navy-950 rounded-lg border border-navy-800"><Fingerprint className="w-6 h-6 text-gold-500" /></div>
                                              <div>
-                                                 <span className="text-[10px] font-bold text-gold-500 uppercase tracking-widest font-mono">Mission Profile</span>
-                                                 <h2 className="text-lg font-bold text-slate-100">Target: {activeCase.opponentType}</h2>
+                                                 <span className="text-[10px] font-bold text-gold-500 uppercase tracking-widest">03 Mission Profile</span>
                                                  <p className="text-slate-400 text-sm italic mt-1 line-clamp-2">"{activeCase.note || 'No context provided.'}"</p>
+                                             </div>
+                                         </div>
+                                     </div>
+
+                                     <div className="w-full bg-navy-900 border border-navy-800 rounded-xl p-5 relative overflow-hidden shrink-0">
+                                         <div className="grid gap-3 md:grid-cols-[240px_minmax(0,1fr)] md:items-end">
+                                             <div className="space-y-2">
+                                                 <Combobox
+                                                     label="04 Choose Adversary"
+                                                     options={opponentOptions}
+                                                     value={selectedOpponent}
+                                                     onChange={handleOpponentChange}
+                                                     placeholder="Select an adversary"
+                                                 />
+                                                 {showCustomOpponentInput && (
+                                                     <div className="animate-fade-in mt-2">
+                                                         <label className="text-[10px] font-bold text-gold-500 uppercase tracking-widest pl-1">
+                                                             Specify Adversary Name
+                                                         </label>
+                                                         <div className="mt-1.5">
+                                                             <input
+                                                                 type="text"
+                                                                 value={customOpponent}
+                                                                 onChange={(event) => setCustomOpponent(event.target.value)}
+                                                                 onBlur={handleCustomOpponentCommit}
+                                                                 onKeyDown={(event) => {
+                                                                     if (event.key === "Enter") {
+                                                                         event.preventDefault();
+                                                                         handleCustomOpponentCommit();
+                                                                     }
+                                                                 }}
+                                                                 placeholder="e.g. Bob"
+                                                                 className="w-full bg-navy-900/50 border border-gold-500/50 rounded-lg p-3 text-sm text-slate-200 outline-none"
+                                                             />
+                                                         </div>
+                                                     </div>
+                                                 )}
+                                             </div>
+                                             <div className="md:pt-5">
+                                                 <div className="relative">
+                                                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                                                     <input
+                                                         type="text"
+                                                         placeholder={
+                                                             selectedOpponent && selectedOpponent !== "Other"
+                                                                 ? `${selectedOpponent}'s Name (Optional)`
+                                                                 : "Adversary's Name (Optional)"
+                                                         }
+                                                         value={senderName}
+                                                         onChange={(event) => setSenderName(event.target.value)}
+                                                         disabled={isAnalyzing || activeCase.isClosed || !!activeCase.demoScenarioId}
+                                                         autoComplete="off"
+                                                         className="w-full bg-navy-950 border border-navy-800 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-gold-500/20"
+                                                     />
+                                                 </div>
                                              </div>
                                          </div>
                                      </div>
                                      
                                      {/* Input Form */}
-                                     <div className="w-full flex-1 min-h-[400px]">
+                                     <div className="w-full min-h-[400px]">
                                       <InputSection 
                                          inputText={inputText} setInputText={setInputText}
                                          senderName={senderName} setSenderName={setSenderName}

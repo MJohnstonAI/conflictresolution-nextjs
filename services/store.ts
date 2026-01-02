@@ -187,6 +187,11 @@ const setLocal = (key: string, data: any[]) => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
+const resetGuestSessions = () => {
+  localStorage.setItem(LS_KEYS.PREMIUM_SESSIONS, '0');
+  localStorage.setItem(LS_KEYS.STANDARD_SESSIONS, '0');
+};
+
 export const store = {
   // --- ACCOUNT & CREDITS ---
   
@@ -196,12 +201,11 @@ export const store = {
         
         // DEMO / GUEST USER
         if (!user) {
-            const premSessions = parseInt(localStorage.getItem(LS_KEYS.PREMIUM_SESSIONS) || '0');
-            const stdSessions = parseInt(localStorage.getItem(LS_KEYS.STANDARD_SESSIONS) || '0');
+            resetGuestSessions();
             const localCases = getLocal(LS_KEYS.CASES).length;
             return { 
-              premiumSessions: premSessions, 
-              standardSessions: stdSessions,
+              premiumSessions: 0, 
+              standardSessions: 0,
               totalCasesCreated: localCases, 
               isAdmin: false,
               role: 'demo' 
@@ -277,12 +281,11 @@ export const store = {
         };
     } catch (e) {
         console.warn("Auth sync interrupted, falling back to local guest state.");
-        const premSessions = parseInt(localStorage.getItem(LS_KEYS.PREMIUM_SESSIONS) || '0');
-        const stdSessions = parseInt(localStorage.getItem(LS_KEYS.STANDARD_SESSIONS) || '0');
+        resetGuestSessions();
         const localCases = getLocal(LS_KEYS.CASES).length;
         return { 
-          premiumSessions: premSessions, 
-          standardSessions: stdSessions,
+          premiumSessions: 0, 
+          standardSessions: 0,
           totalCasesCreated: localCases, 
           isAdmin: false,
           role: 'demo' 
@@ -305,16 +308,14 @@ export const store = {
   },
 
   addSessions: async (type: 'standard' | 'premium', amount: number): Promise<void> => {
-    const lsKey = type === 'premium' ? LS_KEYS.PREMIUM_SESSIONS : LS_KEYS.STANDARD_SESSIONS;
     const dbCol = type === 'premium' ? 'premium_sessions' : 'standard_sessions';
     const { data, error } = await supabase.auth.getUser();
     if (error) throw error;
     const user = data?.user;
 
     if (!user) {
-        const current = parseInt(localStorage.getItem(lsKey) || '0');
-        localStorage.setItem(lsKey, (current + amount).toString());
-        return;
+        resetGuestSessions();
+        throw new Error("Sign in to purchase sessions.");
     }
 
     if (amount > 0) {

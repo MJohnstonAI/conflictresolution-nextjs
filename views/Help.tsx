@@ -1,21 +1,102 @@
 
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, BookOpen, MessageCircle, Mail, ChevronDown, ChevronUp, Send, Copy, Check, Shield, Scale, Mountain, Flame, Briefcase, Zap, Globe, Cpu, Microscope } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import Script from 'next/script';
 import { Button, Badge } from '../components/UI';
 import { Tabs, TabsList, TabsTrigger, TabsContent, toast } from '../components/DesignSystem';
 
 export const Help: React.FC = () => {
   const router = useRouter();
   const [emailCopied, setEmailCopied] = useState(false);
+  const [supportEmail, setSupportEmail] = useState("");
+  const [supportTopic, setSupportTopic] = useState("General Inquiry");
+  const [supportMessage, setSupportMessage] = useState("");
+  const [supportTrap, setSupportTrap] = useState("");
+  const [supportStartedAt, setSupportStartedAt] = useState(() => Date.now());
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [isSending, setIsSending] = useState(false);
+
+  const turnstileSiteKey =
+    process.env.NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY ||
+    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
   const handleCopyEmail = () => {
-      navigator.clipboard.writeText("syncteamai@gmail.com");
+      navigator.clipboard.writeText("support@resolvethedisputes.com");
       setEmailCopied(true);
       setTimeout(() => setEmailCopied(false), 2000);
       toast("Email copied to clipboard.", "success");
+  };
+
+  useEffect(() => {
+    if (!turnstileSiteKey || typeof window === "undefined") return;
+    const onSuccess = (token: string) => setTurnstileToken(token);
+    const onExpired = () => setTurnstileToken("");
+    (window as any).handleTurnstileSuccess = onSuccess;
+    (window as any).handleTurnstileExpired = onExpired;
+    return () => {
+      delete (window as any).handleTurnstileSuccess;
+      delete (window as any).handleTurnstileExpired;
+    };
+  }, [turnstileSiteKey]);
+
+  const handleSupportSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (isSending) return;
+    if (!supportEmail.trim()) {
+      toast("Please enter your email address.", "error");
+      return;
+    }
+    if (!supportMessage.trim()) {
+      toast("Please enter a message.", "error");
+      return;
+    }
+    if (turnstileSiteKey && !turnstileToken) {
+      toast("Please complete the verification.", "error");
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const response = await fetch("/api/support", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: supportEmail.trim(),
+          topic: supportTopic,
+          message: supportMessage.trim(),
+          trap: supportTrap,
+          startedAt: supportStartedAt,
+          turnstileToken,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message =
+          payload?.error?.message ||
+          (typeof payload?.message === "string" ? payload.message : null) ||
+          "Failed to send your message.";
+        throw new Error(message);
+      }
+      toast("Message sent!", "success");
+      setSupportMessage("");
+      setSupportTopic("General Inquiry");
+      setTurnstileToken("");
+      setSupportStartedAt(Date.now());
+      if (typeof window !== "undefined") {
+        const turnstile = (window as any).turnstile;
+        if (turnstile?.reset) {
+          turnstile.reset();
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to send your message.";
+      toast(message, "error");
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -57,7 +138,7 @@ export const Help: React.FC = () => {
                 <div className="grid gap-6 md:grid-cols-2">
                   <div className="bg-navy-900 p-6 rounded-xl border border-navy-800">
                     <div className="text-gold-500 font-bold text-lg mb-2">01. Create a Case</div>
-                    <p className="text-slate-400 text-sm leading-relaxed">Select your opponent type (e.g., Landlord, Ex-Partner) and describe the situation. This sets the initial context for the AI.</p>
+                    <p className="text-slate-400 text-sm leading-relaxed">Describe the conflict first, then choose Standard or Premium below the text. If there is enough detail, the system may recommend a tier. Start Analysis opens the Mission Profile where you can confirm the adversary.</p>
                   </div>
                   <div className="bg-navy-900 p-6 rounded-xl border border-navy-800">
                     <div className="text-gold-500 font-bold text-lg mb-2">02. The War Room</div>
@@ -160,7 +241,7 @@ export const Help: React.FC = () => {
                             </div>
                         </div>
                         <p className="text-xs text-slate-500 mt-4 italic">
-                            When you click "Start New Case", simply choose the tier that matches the threat level of that specific conflict.
+                            After you describe the dispute, pick a tier below the case details. Recommendations only appear when the system is confident.
                         </p>
                     </div>
                 </div>
@@ -174,7 +255,7 @@ export const Help: React.FC = () => {
                  </p>
                  <div className="bg-navy-950/50 p-4 rounded-lg border border-navy-800">
                     <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">Limit Note</p>
-                    <p className="text-xs text-slate-400">Inputs are limited to 15,000 characters. If your opponent sent a very long email, please split it into multiple rounds to ensure the AI captures every detail accurately.</p>
+                    <p className="text-xs text-slate-400">Inputs are limited to 40,000 characters. If your opponent sent a very long email, please split it into multiple rounds to ensure the AI captures every detail accurately.</p>
                  </div>
               </section>
             </div>
@@ -278,14 +359,25 @@ export const Help: React.FC = () => {
             <div className="max-w-xl mx-auto animate-fade-in">
                <div className="bg-navy-900 border border-navy-800 rounded-2xl p-8">
                   <h3 className="text-xl font-bold text-slate-100 mb-6">Contact Support</h3>
-                  <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); toast("Message sent!", "success"); }}>
+                  <form className="space-y-4" onSubmit={handleSupportSubmit}>
                      <div className="space-y-1">
                         <label className="text-xs font-bold text-slate-400 uppercase">Your Email</label>
-                        <input type="email" className="w-full bg-navy-950 border border-navy-800 rounded-lg p-3 text-slate-200 outline-none focus:border-gold-500" placeholder="you@example.com" />
+                        <input
+                          type="email"
+                          required
+                          value={supportEmail}
+                          onChange={(e) => setSupportEmail(e.target.value)}
+                          className="w-full bg-navy-950 border border-navy-800 rounded-lg p-3 text-slate-200 outline-none focus:border-gold-500"
+                          placeholder="you@example.com"
+                        />
                      </div>
                      <div className="space-y-1">
                         <label className="text-xs font-bold text-slate-400 uppercase">Subject</label>
-                        <select className="w-full bg-navy-950 border border-navy-800 rounded-lg p-3 text-slate-200 outline-none focus:border-gold-500">
+                        <select
+                          value={supportTopic}
+                          onChange={(e) => setSupportTopic(e.target.value)}
+                          className="w-full bg-navy-950 border border-navy-800 rounded-lg p-3 text-slate-200 outline-none focus:border-gold-500"
+                        >
                            <option>General Inquiry</option>
                            <option>Billing Issue</option>
                            <option>Bug Report</option>
@@ -294,11 +386,54 @@ export const Help: React.FC = () => {
                      </div>
                      <div className="space-y-1">
                         <label className="text-xs font-bold text-slate-400 uppercase">Message</label>
-                        <textarea className="w-full bg-navy-950 border border-navy-800 rounded-lg p-3 text-slate-200 outline-none focus:border-gold-500 h-32 resize-none" placeholder="How can we help?" />
+                        <textarea
+                          required
+                          value={supportMessage}
+                          onChange={(e) => setSupportMessage(e.target.value)}
+                          className="w-full bg-navy-950 border border-navy-800 rounded-lg p-3 text-slate-200 outline-none focus:border-gold-500 h-32 resize-none"
+                          placeholder="How can we help?"
+                        />
                      </div>
-                     <Button fullWidth className="mt-4 gap-2">
-                        <Send className="w-4 h-4" /> Send Message
+                     <div className="relative" aria-hidden="true">
+                        <label className="sr-only" htmlFor="company">
+                          Company
+                        </label>
+                        <input
+                          id="company"
+                          type="text"
+                          tabIndex={-1}
+                          autoComplete="off"
+                          value={supportTrap}
+                          onChange={(e) => setSupportTrap(e.target.value)}
+                          className="absolute left-[-10000px] top-auto w-px h-px overflow-hidden"
+                        />
+                     </div>
+                     {turnstileSiteKey ? (
+                       <div className="flex justify-center">
+                         <Script
+                           src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+                           async
+                           defer
+                         />
+                         <div
+                           className="cf-turnstile"
+                           data-sitekey={turnstileSiteKey}
+                           data-callback="handleTurnstileSuccess"
+                           data-expired-callback="handleTurnstileExpired"
+                         />
+                       </div>
+                     ) : (
+                       <p className="text-xs text-rose-300">
+                         Turnstile is not configured yet. Please set the public site key to enable support
+                         submissions.
+                       </p>
+                     )}
+                     <Button fullWidth className="mt-4 gap-2" disabled={isSending || !turnstileSiteKey}>
+                        <Send className="w-4 h-4" /> {isSending ? "Sending..." : "Send Message"}
                      </Button>
+                     <p className="text-[10px] uppercase tracking-widest text-slate-500 text-center">
+                       Protected by Cloudflare Turnstile
+                     </p>
                   </form>
                   <div className="mt-6 pt-6 border-t border-navy-800 text-center flex flex-col items-center">
                      <p className="text-xs text-slate-500 mb-2">Or email us directly</p>

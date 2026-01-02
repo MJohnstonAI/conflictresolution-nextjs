@@ -1,11 +1,29 @@
 
 import { Theme } from '../types';
 
+const ALLOWED_THEMES: Theme[] = [
+  'light',
+  'dark',
+  'system',
+  'aura',
+  'midnight',
+  'slate',
+  'sapphire',
+  'nordic',
+];
+
+const normalizeTheme = (value: string | null): Theme => {
+  if (value && ALLOWED_THEMES.includes(value as Theme)) {
+    return value as Theme;
+  }
+  return 'dark';
+};
+
 export const themeService = {
   init: () => {
     // 1. Load saved
     // Default to 'dark' instead of 'system' if no preference exists
-    const saved = localStorage.getItem('conflictresolution_theme') as Theme || 'dark';
+    const saved = normalizeTheme(localStorage.getItem('conflictresolution_theme'));
     themeService.apply(saved);
 
     // 2. Add System Listener (Only fires if OS theme changes)
@@ -24,7 +42,7 @@ export const themeService = {
 
   get: (): Theme => {
     // Default to 'dark' instead of 'system'
-    return (localStorage.getItem('conflictresolution_theme') as Theme) || 'dark';
+    return normalizeTheme(localStorage.getItem('conflictresolution_theme'));
   },
 
   apply: (theme: Theme) => {

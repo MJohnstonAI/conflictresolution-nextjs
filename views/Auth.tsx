@@ -195,7 +195,7 @@ export const Auth: React.FC = () => {
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/5 rounded-full blur-[120px]" />
       </div>
 
-      <div className="w-full max-w-md relative z-10 animate-fade-in">
+      <div className="w-full max-w-5xl relative z-10 animate-fade-in">
         {/* Logo/Brand */}
         <div className="text-center mb-8">
           <div 
@@ -210,7 +210,12 @@ export const Auth: React.FC = () => {
           <p className="text-slate-400 text-sm mt-3 font-medium">Strategic Communication Intelligence</p>
         </div>
 
-        <div className="bg-navy-900 border border-navy-800 rounded-2xl shadow-2xl overflow-hidden">
+        <div
+          className={`grid gap-6 ${
+            view === 'signin' ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)] items-start' : 'grid-cols-1'
+          }`}
+        >
+          <div className="bg-navy-900 border border-navy-800 rounded-2xl shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="p-8 pb-0">
             <h2 className="text-2xl font-bold text-white mb-2">
@@ -220,7 +225,7 @@ export const Auth: React.FC = () => {
               {view === 'update' && 'Fortify Access'}
             </h2>
             <p className="text-slate-400 text-sm">
-              {view === 'signin' && 'Deploy your credentials to access the vault.'}
+              {view === 'signin' && 'Registered Users Login here to access your Vault and credits.'}
               {view === 'signup' && 'Enlist today for psychological tactical support.'}
               {view === 'forgot' && 'Enter your email to receive recovery protocols.'}
               {view === 'update' && 'Set your new high-security password.'}
@@ -410,17 +415,37 @@ export const Auth: React.FC = () => {
           {/* Footer */}
           {!magicLinkSent && (
             <div className="p-8 pt-0 border-t border-navy-800/50 bg-navy-950/20 text-center">
-              {view === 'signin' ? (
-                <p className="text-sm text-slate-400">
-                  New to the operation? {' '}
-                  <button onClick={() => setView('signup')} className="text-gold-500 font-bold hover:underline">Register Agent</button>
-                </p>
-              ) : (
+              {view !== 'signin' && (
                 <p className="text-sm text-slate-400">
                   Already have access? {' '}
                   <button onClick={() => setView('signin')} className="text-gold-500 font-bold hover:underline">Sign In</button>
                 </p>
               )}
+            </div>
+          )}
+          </div>
+
+          {view === 'signin' && (
+            <div className="bg-navy-900 border border-navy-800 rounded-2xl shadow-2xl p-8 flex flex-col gap-4">
+              <div className="flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-blue-400" />
+                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">
+                  New Users
+                </span>
+              </div>
+              <h3 className="text-xl font-bold text-white">Activate your membership</h3>
+              <p className="text-sm text-white">
+                New users register here to activate your membership.
+              </p>
+              <p className="text-xs text-slate-400">
+                Create your account to access credits, templates, and case history.
+              </p>
+              <Button
+                onClick={() => setView('signup')}
+                className="bg-blue-500 hover:bg-blue-400 text-white font-bold"
+              >
+                Register here
+              </Button>
             </div>
           )}
         </div>

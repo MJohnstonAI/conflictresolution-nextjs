@@ -26,7 +26,6 @@ import {
   Settings,
   Sun,
   Feather,
-  Waves,
   Disc,
   Gem,
   Snowflake,
@@ -354,7 +353,6 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     { id: "slate", label: "Slate", icon: Disc },
     { id: "sapphire", label: "Sapphire", icon: Gem },
     { id: "nordic", label: "Nordic", icon: Snowflake },
-    { id: "ocean", label: "Ocean", icon: Waves },
   ];
 
   return (

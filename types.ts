@@ -9,7 +9,7 @@ export type PlanType = "standard" | "premium" | "demo";
 
 export type UserRole = "admin" | "demo" | "pending" | "paid" | "trial";
 
-export type Theme = 'light' | 'dark' | 'system' | 'aura' | 'midnight' | 'slate' | 'sapphire' | 'nordic' | 'ocean';
+export type Theme = 'light' | 'dark' | 'system' | 'aura' | 'midnight' | 'slate' | 'sapphire' | 'nordic';
 
 export interface UserAccount {
   // Personalization
