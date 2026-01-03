@@ -350,8 +350,10 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     setAuthError(null);
     try {
       await authService.linkIdentity("google");
+      await refreshAuthUser();
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : "Unable to link Google.");
+    } finally {
       setLinkingProvider(null);
     }
   };

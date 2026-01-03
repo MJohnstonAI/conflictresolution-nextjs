@@ -8,8 +8,6 @@ import { store } from '../services/store';
 import { Button } from '../components/UI';
 import { ArrowLeft, Mail, Lock, CheckCircle2, AlertCircle, Loader2, Eye, EyeOff, ShieldCheck, Zap, Inbox, UserPlus, User } from 'lucide-react';
 import { toast } from '../components/DesignSystem';
-
-// Component was truncated, fixing return type and dangling reference
 export const Auth: React.FC = () => {
   const router = useRouter();
   const [view, setView] = useState<'entry' | 'forgot' | 'update' | 'profile'>('entry');
@@ -255,7 +253,6 @@ export const Auth: React.FC = () => {
 
   const showSidePanel = view === 'entry';
 
-  // Fixed Error: Type '() => void' is not assignable to type 'FC<{}>' by adding return statement
   return (
     <div className="min-h-screen bg-navy-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
       {/* Background elements */}
