@@ -40,19 +40,21 @@ export const Auth: React.FC = () => {
   const strength = getPasswordStrength(password);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const stayOnAuth = params.get('stay') === '1';
+
     // Initial Session Check
     authService.getSession().then(session => {
-      if (session) router.push('/vault');
+      if (session && !stayOnAuth) router.push('/vault');
     });
 
     // Listener for Auth Changes (Handles magic link login & Google redirect)
     const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session) {
+      if (event === 'SIGNED_IN' && session && !stayOnAuth) {
         router.push('/vault');
       }
     });
 
-    const params = new URLSearchParams(window.location.search);
     if (params.get('type') === 'recovery') {
       setView('update');
     }

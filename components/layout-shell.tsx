@@ -11,6 +11,7 @@ import { Theme } from "@/types";
 import {
   Archive,
   Book,
+  BookOpen,
   CheckCircle2,
   FileText,
   HelpCircle,
@@ -623,6 +624,7 @@ const LayoutShell: React.FC<{ children?: React.ReactNode }> = ({ children }) => 
 
   const navItems = [
     { icon: HomeIcon, label: "Start", path: "/" },
+    { icon: BookOpen, label: "Resolution Library", path: "/resources" },
     { icon: CreditCard, label: "Purchase sessions", path: "/unlock/credits", showOnMobile: false },
     { icon: FileText, label: "Billing Ledger", path: "/ledger", showOnMobile: false },
     { icon: Archive, label: "Vault", path: "/vault" },
