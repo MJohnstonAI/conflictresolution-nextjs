@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { User, RefreshCw, AlertTriangle, Shield, Scale, Mountain, Flame, ArrowLeft, Home, Copy, Info, Target, Fingerprint, Activity, ChevronLeft, ChevronRight, Download, Eye, EyeOff, Printer, FileText, PlayCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { User, RefreshCw, AlertTriangle, Shield, Scale, Mountain, Flame, ArrowLeft, Home, Copy, Info, Target, Fingerprint, Activity, ChevronLeft, ChevronRight, Download, Eye, EyeOff, Printer, FileText, PlayCircle, ChevronDown, ChevronUp, Check, Loader2 } from 'lucide-react';
 import { store } from '../services/store';
 import { analyzeConflict } from '../services/ai';
 import { exportService } from '../services/export';
@@ -11,6 +11,10 @@ import { Case, Round, Mode, OpponentType, UserAccount } from '../types';
 import { Button, Badge, RiskGauge } from '../components/UI';
 import { toast, Combobox } from '../components/DesignSystem';
 import { DEMO_SCENARIOS } from '../services/demo_scenarios';
+import { setRouteState } from '../lib/route-state';
+import { authService } from '../services/auth';
+
+const MAX_EVIDENCE_CHARS = 20000;
 
 const getSortedOpponentOptions = (): OpponentType[] => {
     const opts: OpponentType[] = [
@@ -153,7 +157,6 @@ interface InputSectionProps {
     inputText: string;
     setInputText: (s: string) => void;
     senderName: string;
-    setSenderName: (s: string) => void;
     isAnalyzing: boolean;
     isCaseClosed: boolean;
     analysisError: string | null;
@@ -161,13 +164,16 @@ interface InputSectionProps {
     activeCase: Case;
     onSubmit: () => void;
     roundNumber: number;
-    isHero?: boolean;
+    maxChars: number;
+    canCondense: boolean;
+    isCondensing: boolean;
+    onCondense: () => void;
     isDemo?: boolean;
     demoHasNext?: boolean;
 }
 
 const InputSection: React.FC<InputSectionProps> = memo(({ 
-    inputText, setInputText, senderName, setSenderName, isAnalyzing, isCaseClosed, analysisError, setAnalysisError, activeCase, onSubmit, roundNumber, isHero = false, isDemo = false, demoHasNext = true
+    inputText, setInputText, senderName, isAnalyzing, isCaseClosed, analysisError, setAnalysisError, activeCase, onSubmit, roundNumber, maxChars, canCondense, isCondensing, onCondense, isDemo = false, demoHasNext = true
 }) => {
     const [isTyping, setIsTyping] = useState(false);
     const typingTimeoutRef = useRef<number | null>(null);
@@ -181,19 +187,13 @@ const InputSection: React.FC<InputSectionProps> = memo(({
         return () => { if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current); };
     }, [inputText]);
 
-    const containerClasses = isHero 
-        ? "bg-navy-900/80 border border-gold-500/30 shadow-[0_0_40px_-10px_rgba(245,158,11,0.1)] p-6 md:p-8 rounded-2xl backdrop-blur-sm w-full flex flex-col"
-        : "h-full flex flex-col justify-center max-w-4xl mx-auto w-full";
+    const containerClasses = "bg-navy-950/70 border border-navy-800 shadow-[0_0_40px_-10px_rgba(15,23,42,0.4)] p-6 md:p-8 rounded-2xl w-full flex flex-col min-h-[520px]";
 
-    const textareaClasses = isHero
-        ? `w-full border border-navy-700 rounded-xl p-6 text-lg outline-none transition-all resize-none flex-1 min-h-[320px] focus:border-gold-500/50 focus:shadow-[inset_0_2px_10px_rgba(0,0,0,0.3)] ${
-            isDemo
-                ? "bg-navy-950 text-slate-100 placeholder-slate-500"
-                : "bg-navy-950/50 text-slate-200 placeholder-slate-600 focus:bg-navy-950"
-        }`
-        : `w-full bg-navy-900 border rounded-2xl p-6 text-base text-slate-300 placeholder-slate-500 outline-none transition-all resize-none flex-1 min-h-[300px] shadow-inner ${
-            isDemo ? "bg-navy-950 text-slate-100 placeholder-slate-500" : ""
-        } ${isTyping ? 'border-gold-500/50 shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)]' : analysisError ? 'border-rose-500/50' : 'border-navy-800 focus:border-gold-500/30'}`;
+    const textareaClasses = `w-full border rounded-2xl p-6 text-base text-slate-900 outline-none transition-all resize-none flex-1 min-h-[360px] shadow-inner focus:ring-2 focus:ring-gold-500/20 ${
+        isDemo
+            ? "bg-navy-950 text-slate-100 placeholder-slate-500"
+            : "bg-white placeholder-slate-400"
+    } ${isTyping ? 'border-gold-500/50 shadow-[0_0_15px_-3px_rgba(245,158,11,0.15)]' : analysisError ? 'border-rose-500/50' : 'border-navy-200/10 focus:border-gold-500/30'}`;
 
     const placeholderText = isDemo
         ? "Demo playback is read-only. Press play to reveal the next scripted message."
@@ -211,52 +211,23 @@ const InputSection: React.FC<InputSectionProps> = memo(({
 
     return (
         <div className={containerClasses}>
-            {!isHero && (
-                <div className={`flex items-center gap-3 ${isHero ? 'mb-6' : 'bg-navy-950 border border-navy-800 p-2 rounded-xl mb-4'}`}>
-                    <div className={`hidden md:flex flex-col items-start justify-center ${isHero ? '' : 'px-4 py-1.5 bg-navy-900 rounded-lg border border-navy-800 min-w-[100px]'}`}>
-                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono">Adversary</span>
-                        <div className="flex items-center gap-2">
-                             <span className={`${isHero ? 'text-xl text-slate-100' : 'text-sm text-gold-500'} font-bold truncate max-w-[200px]`}>
-                                 {activeCase.opponentType}
-                             </span>
-                             {isHero && <Badge color="gray" >Target</Badge>}
-                        </div>
-                    </div>
-                    
-                    <div className="flex-1 relative">
-                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                        <input 
-                            type="text" 
-                            placeholder={activeCase.opponentType === 'Other' ? "Enter Name" : `${activeCase.opponentType}'s Name (Optional)`}
-                            value={senderName}
-                            onChange={(e) => setSenderName(e.target.value)}
-                            disabled={isAnalyzing || isCaseClosed || !!activeCase.demoScenarioId}
-                            autoComplete="off"
-                            className={`w-full bg-transparent border-none rounded-lg pl-10 pr-4 py-2.5 text-sm text-slate-300 placeholder-slate-500 focus:ring-1 focus:ring-gold-500/50 outline-none ${isHero ? 'bg-navy-950 border border-navy-800' : 'bg-navy-900'}`}
-                        />
-                    </div>
-                </div>
-            )}
-
             <div className="space-y-3 flex-1 flex flex-col">
                 <label className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-3">
                         <span className="text-[10px] font-bold text-gold-500 uppercase tracking-widest pl-1 flex items-center gap-2">
-                            {isHero ? <Activity className="w-3 h-3" /> : null}
-                            {isDemo
-                                ? `DEMO ROUND ${roundNumber} // READY TO PLAY`
-                                : isHero
-                                    ? "05 Awaiting Transmission (Evidence)"
-                                    : `ROUND ${roundNumber} // AWAITING INPUT`}
+                            <Activity className="w-3 h-3" />
+                            {isDemo ? `DEMO ROUND ${roundNumber} // READY TO PLAY` : "05 Awaiting Transmission (Evidence)"}
                         </span>
-                        {isHero && (
+                        {!isDemo && (
                             <div className="flex items-center gap-2">
                                 <span className="text-base font-semibold text-slate-100">{activeCase.opponentType}</span>
                                 <Badge color="gray">Target</Badge>
                             </div>
                         )}
                     </div>
-                    {inputText.length > 0 && <span className="text-[10px] text-slate-500">{inputText.length} chars</span>}
+                    <span className="text-[10px] text-slate-500">
+                        {inputText.length.toLocaleString()} / {maxChars.toLocaleString()}
+                    </span>
                 </label>
 
                 <textarea 
@@ -271,15 +242,33 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                     readOnly={isDemo}
                     disabled={isAnalyzing || isCaseClosed}
                 />
+                {!isDemo && inputText.length > maxChars && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+                        <span>
+                            Only the first {maxChars.toLocaleString()} characters are analyzed. {canCondense ? "Condense to fit or split into multiple rounds." : "Split into multiple rounds to include everything."}
+                        </span>
+                        {canCondense && (
+                            <button
+                                type="button"
+                                onClick={onCondense}
+                                disabled={isCondensing}
+                                className="inline-flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-500/20 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-amber-100 hover:bg-amber-500/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                {isCondensing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                                {isCondensing ? "Condensing" : "Condense to fit"}
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
 
-            <div className={isHero ? "mt-8" : "mt-6"}>
+            <div className="mt-8">
                 <Button 
                     onClick={onSubmit}
                     fullWidth 
                     size="lg" 
                     disabled={actionDisabled}
-                    className={`font-bold shadow-lg transition-all ${isHero ? 'bg-gold-600 hover:bg-gold-500 text-navy-950 py-5 text-lg shadow-gold-500/20' : 'bg-gold-600 hover:bg-gold-500 text-navy-950 shadow-gold-500/20'}`}
+                    className="font-bold shadow-lg transition-all bg-gold-600 hover:bg-gold-500 text-navy-950 py-5 text-lg shadow-gold-500/20"
                 >
                     {isAnalyzing ? (
                         <div className="flex items-center gap-2">
@@ -354,6 +343,17 @@ const SingleRoundView: React.FC<{
     const [showRawText, setShowRawText] = useState(isDemo);
     const [showWhy, setShowWhy] = useState(false);
     const [showWatchFor, setShowWatchFor] = useState(false);
+    const [hasCopied, setHasCopied] = useState(false);
+    const [showMobileAnalysis, setShowMobileAnalysis] = useState(false);
+    const copyTimeoutRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (copyTimeoutRef.current) {
+                clearTimeout(copyTimeoutRef.current);
+            }
+        };
+    }, []);
 
     // Helper to get current response text
     const currentResponse = round.responses[round.selectedMode === 'Peacekeeper' ? 'soft' : round.selectedMode === 'Barrister' ? 'firm' : round.selectedMode === 'Grey Rock' ? 'greyRock' : 'nuclear'] || "";
@@ -364,7 +364,7 @@ const SingleRoundView: React.FC<{
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full min-h-0">
                 
                 {/* --- LEFT COLUMN: INTELLIGENCE & NARRATIVE --- */}
-                <div className="flex flex-col gap-6 h-full min-h-0 overflow-hidden">
+                <div className={`flex-col gap-6 h-full min-h-0 overflow-hidden order-2 lg:order-1 ${showMobileAnalysis ? 'flex' : 'hidden lg:flex'}`}>
                     
                     {/* TOP: ADVERSARY'S NARRATIVE (Summary) */}
                     <div className="bg-navy-900 border border-navy-800 rounded-xl overflow-hidden shadow-lg flex-shrink-0 flex flex-col max-h-[50%]">
@@ -438,7 +438,7 @@ const SingleRoundView: React.FC<{
                 </div>
 
                 {/* --- RIGHT COLUMN: STRATEGIC RESPONSE --- */}
-                <div className="flex flex-col bg-navy-900 border border-navy-800 rounded-xl overflow-hidden shadow-lg h-full">
+                <div className="flex flex-col bg-navy-900 border border-navy-800 rounded-xl overflow-hidden shadow-lg h-full order-1 lg:order-2">
                     <div className="bg-navy-950 px-5 py-3 border-b border-navy-800 flex items-center justify-between shrink-0">
                         <div className="flex items-center gap-2">
                             <Target className="w-4 h-4 text-blue-400" />
@@ -449,10 +449,14 @@ const SingleRoundView: React.FC<{
                                 onClick={() => {
                                     navigator.clipboard.writeText(currentResponse);
                                     toast("Draft Copied to Clipboard", "success");
+                                    setHasCopied(true);
+                                    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+                                    copyTimeoutRef.current = window.setTimeout(() => setHasCopied(false), 2000);
                                 }}
                                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg border border-blue-500 transition-all"
                             >
-                                <Copy className="w-4 h-4"/> Copy Text
+                                {hasCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4"/>}
+                                {hasCopied ? "Copied" : "Copy Text"}
                             </button>
                             {onPrint && (
                                 <button
@@ -466,15 +470,25 @@ const SingleRoundView: React.FC<{
                     </div>
 
                     <div className="p-6 flex-1 flex flex-col min-h-0 gap-4">
+                        <button
+                            type="button"
+                            onClick={() => setShowMobileAnalysis((prev) => !prev)}
+                            className="lg:hidden inline-flex items-center justify-center gap-2 rounded-lg border border-navy-800 bg-navy-950/40 px-3 py-2 text-xs font-bold uppercase tracking-widest text-slate-300 hover:bg-navy-900/60 transition-colors"
+                        >
+                            {showMobileAnalysis ? "Hide Analysis" : "Show Analysis"}
+                        </button>
                         
                         {/* Personalized Greeting */}
                         <div className="bg-navy-950/40 p-3 rounded-lg border border-navy-800/50 flex items-center gap-3 shrink-0">
                             <div className="w-8 h-8 rounded-full bg-navy-800 border border-gold-500/20 flex items-center justify-center text-gold-500">
                                 <Activity className="w-4 h-4" />
                             </div>
-                            <p className="text-xs text-slate-400">
-                                Hi <span className="text-slate-100 font-bold">{userName || "User"}</span>, copy this response to your <span className="text-gold-500 font-bold">{opponentType}</span>
-                            </p>
+                            <div className="space-y-1">
+                                <p className="text-xs text-slate-400">
+                                    Hi <span className="text-slate-100 font-bold">{userName || "User"}</span>, copy this response to your <span className="text-gold-500 font-bold">{opponentType}</span>
+                                </p>
+                                <p className="text-[11px] text-slate-500">Drafts are read-only for safety. Copy to personalize.</p>
+                            </div>
                         </div>
 
                         {/* Tone Selectors */}
@@ -638,7 +652,9 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisError, setAnalysisError] = useState<string | null>(null);
     const [selectedOpponent, setSelectedOpponent] = useState<string>("");
-    const [customOpponent, setCustomOpponent] = useState("");
+    const [inputMode, setInputMode] = useState(true);
+    const [isCondensing, setIsCondensing] = useState(false);
+    const [showNavHint, setShowNavHint] = useState(false);
     const analyzeInFlight = useRef(false);
     const opponentOptions = useMemo(() => getSortedOpponentOptions(), []);
     const demoScenario = useMemo(
@@ -646,6 +662,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         [activeCase?.demoScenarioId]
     );
     const isDemo = !!activeCase?.demoScenarioId && activeCase?.planType === "demo";
+    const canCondense = !isDemo && account?.role !== "demo";
+    const latestRoundIndex = rounds.length - 1;
 
     // Initial Load
     useEffect(() => {
@@ -687,22 +705,38 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             setAccount(acc);
             setLoading(false);
             setSelectedOpponent(caseData.opponentType || "");
-            if (caseData.opponentType && !opponentOptions.includes(caseData.opponentType as OpponentType)) {
-                setCustomOpponent(caseData.opponentType);
-            } else if (caseData.opponentType !== "Other") {
-                setCustomOpponent("");
-            }
             
-            // Set initial view to the latest round if exists
+            // Set initial view to the first round if exists
             if (r.length > 0) {
-                setViewIndex(r.length - 1); 
-                if (r[r.length-1].senderIdentity) setSenderName(r[r.length-1].senderIdentity || "");
+                setViewIndex(0);
+                setInputMode(false);
+                if (r[0].senderIdentity) setSenderName(r[0].senderIdentity || "");
             } else {
                 setViewIndex(0); // Input mode (Round 1)
+                setInputMode(true);
             }
         };
         load();
     }, [caseId, id, opponentOptions, router]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const seen = window.localStorage.getItem("cr_nav_hint_seen");
+        if (!seen) setShowNavHint(true);
+    }, []);
+
+    useEffect(() => {
+        if (isDemo) return;
+        if (!inputMode) return;
+        if (viewIndex < rounds.length) {
+            const round = rounds[viewIndex];
+            setInputText(round?.opponentText || "");
+            setSenderName(round?.senderIdentity || "");
+            return;
+        }
+        setInputText("");
+        setSenderName("");
+    }, [inputMode, viewIndex, rounds, isDemo]);
 
     useEffect(() => {
         if (!isDemo || !demoScenario) return;
@@ -710,14 +744,36 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         setInputText(nextRound ? nextRound.opponentText : "");
     }, [isDemo, demoScenario, rounds.length]);
 
-    useEffect(() => {
-        if (!selectedOpponent) return;
-        if (!opponentOptions.includes(selectedOpponent as OpponentType)) {
-            setCustomOpponent(selectedOpponent);
-            return;
+    const handleCondenseEvidence = async () => {
+        if (isCondensing || !inputText.trim()) return;
+        setIsCondensing(true);
+        try {
+            const session = await authService.getSession();
+            const token = session?.access_token;
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (token) headers.Authorization = `Bearer ${token}`;
+            const response = await fetch("/api/message-summarize", {
+                method: "POST",
+                headers,
+                body: JSON.stringify({ text: inputText, limit: MAX_EVIDENCE_CHARS }),
+            });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok || !payload?.data?.text) {
+                const message =
+                    payload?.error?.message ||
+                    (typeof payload?.message === "string" ? payload.message : null) ||
+                    "Failed to condense evidence.";
+                throw new Error(message);
+            }
+            setInputText(payload.data.text);
+            toast("Evidence condensed to fit the limit.", "success");
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to condense evidence.";
+            toast(message, "error");
+        } finally {
+            setIsCondensing(false);
         }
-        if (selectedOpponent !== "Other") setCustomOpponent("");
-    }, [opponentOptions, selectedOpponent]);
+    };
 
     const updateCaseOpponent = async (nextOpponent: string) => {
         if (!activeCase) return;
@@ -733,13 +789,6 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const handleOpponentChange = async (nextOpponent: string) => {
         setSelectedOpponent(nextOpponent);
         await updateCaseOpponent(nextOpponent);
-    };
-
-    const handleCustomOpponentCommit = async () => {
-        const trimmed = customOpponent.trim();
-        if (!trimmed) return;
-        setSelectedOpponent(trimmed);
-        await updateCaseOpponent(trimmed);
     };
 
     // Create a mapping for sequential case numbers based on chronological order (Replicated from Vault)
@@ -879,7 +928,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             setInputText("");
             
             // Auto-switch view to the result we just generated
-            setViewIndex(updatedRounds.length - 1); 
+            setViewIndex(updatedRounds.length - 1);
+            setInputMode(false);
             toast("Analysis complete.", "success");
 
         } catch (e: unknown) {
@@ -912,15 +962,44 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             }
             return;
         }
-        if (viewIndex < rounds.length) {
-            setViewIndex(viewIndex + 1);
+        if (inputMode) {
+            if (viewIndex < rounds.length) {
+                setInputMode(false);
+            }
+            return;
         }
+        setInputMode(true);
+        setViewIndex(viewIndex + 1);
     };
 
     const goToPrev = () => {
-        if (viewIndex > 0) {
+        if (inputMode) {
+            if (viewIndex === 0) {
+                if (activeCase) {
+                    setRouteState("/", {
+                        templateText: activeCase.note || "",
+                        opponentType: activeCase.opponentType || "Other",
+                        planType: activeCase.planType,
+                    });
+                }
+                router.push('/');
+                return;
+            }
+            setInputMode(false);
             setViewIndex(viewIndex - 1);
+            return;
         }
+        setInputMode(true);
+    };
+
+    const handleHeaderBack = () => {
+        goToPrev();
+    };
+
+    const handleJumpToLatest = () => {
+        if (latestRoundIndex < 0) return;
+        setInputMode(false);
+        setViewIndex(latestRoundIndex);
     };
 
     const handleDownload = () => {
@@ -932,11 +1011,12 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     if (loading || !activeCase) return <div className="flex items-center justify-center h-screen bg-navy-950"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold-500"></div></div>;
 
     // Determine current view mode
-    const isInputMode = viewIndex === rounds.length;
+        const isInputMode = inputMode;
     const currentRound = !isInputMode ? rounds[viewIndex] : null;
+    const viewLabel = isInputMode ? "Evidence" : "Results";
 
     const roundsUsedCount = Math.max(rounds.length, activeCase.roundsUsed);
-    const displayRound = isInputMode ? rounds.length : (viewIndex + 1);
+    const displayRound = isInputMode ? viewIndex : (viewIndex + 1);
     const standardSessions = account?.standardSessions ?? 0;
     const premiumSessions = account?.premiumSessions ?? 0;
     const activeSessions = activeCase.planType === "premium" ? premiumSessions : standardSessions;
@@ -949,9 +1029,6 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
               ? "anthropic/claude-haiku-4.5"
               : "demo-script");
     const demoHasNext = isDemo && !!demoScenario?.rounds[rounds.length];
-    const showCustomOpponentInput =
-        selectedOpponent === "Other" ||
-        (selectedOpponent && !opponentOptions.includes(selectedOpponent as OpponentType));
 
     return (
         <div className="w-full h-full">
@@ -960,7 +1037,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 <div className="py-4 flex flex-col gap-4 border-b border-navy-800 shrink-0">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div className="flex items-center gap-4 min-w-0">
-                            <button onClick={() => router.push('/vault')} className="text-slate-400 hover:text-white transition-colors">
+                            <button onClick={handleHeaderBack} className="text-slate-400 hover:text-white transition-colors">
                                 <ArrowLeft className="w-5 h-5" />
                             </button>
                             <div className="min-w-0">
@@ -970,23 +1047,45 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                     <div className="flex items-center gap-2">
                                         <button 
                                             onClick={goToPrev} 
-                                            disabled={viewIndex === 0}
                                             className="p-2 rounded-lg border border-navy-800 bg-navy-900 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                                         >
                                             <ChevronLeft className="w-5 h-5" />
                                         </button>
-                                        <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-widest font-mono">
-                                            <div className="flex items-center gap-1.5">
-                                                <div className="w-4 h-4 rounded bg-navy-950 border border-navy-800 flex items-center justify-center">
-                                                    <span className="text-[8px] font-bold text-gold-500">{caseNum}</span>
-                                                </div>
+                                        <div className="flex flex-col gap-1">
+                                            <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-widest font-mono">
                                                 <span className="text-slate-100">Case {caseNum}</span>
+                                                <span className="text-slate-500">{viewLabel} • Round {displayRound}</span>
                                             </div>
-                                            <span className="text-slate-500">Round {displayRound}</span>
+                                            {rounds.length > 0 && (!(!isInputMode && viewIndex === latestRoundIndex)) && (
+                                                <div className="flex items-center gap-2 text-[9px] uppercase tracking-widest text-slate-500 font-bold">
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleJumpToLatest}
+                                                        className="text-blue-400 hover:text-blue-300 transition-colors"
+                                                    >
+                                                        Jump to Latest
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {showNavHint && (
+                                                <div className="flex items-center gap-2 text-[9px] text-slate-500">
+                                                    <span>Use ← / → to flip</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setShowNavHint(false);
+                                                            window.localStorage.setItem("cr_nav_hint_seen", "true");
+                                                        }}
+                                                        className="text-slate-300 hover:text-slate-100"
+                                                    >
+                                                        Got it
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                         <button 
                                             onClick={goToNext} 
-                                            disabled={viewIndex === rounds.length}
+                                            disabled={isInputMode && viewIndex === rounds.length}
                                             className="p-2 rounded-lg border border-navy-800 bg-navy-900 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                                         >
                                             <ChevronRight className="w-5 h-5" />
@@ -1017,101 +1116,73 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 <div className="flex-1 min-h-0 relative pt-4">
                     {isInputMode ? (
                         <div className="h-full overflow-y-auto custom-scrollbar">
-                            {rounds.length === 0 ? (
-                                 <div className="h-full flex flex-col items-center max-w-5xl mx-auto pt-4 pb-10 gap-6">
-                                     <div className="w-full bg-navy-900 border border-navy-800 rounded-xl p-5 relative overflow-hidden shrink-0">
-                                         <div className="absolute top-0 right-0 p-4 opacity-5"><Target className="w-24 h-24 text-gold-500" /></div>
-                                         <div className="relative z-10 flex items-start gap-4">
-                                             <div className="p-3 bg-navy-950 rounded-lg border border-navy-800"><Fingerprint className="w-6 h-6 text-gold-500" /></div>
-                                             <div>
-                                                 <span className="text-[10px] font-bold text-gold-500 uppercase tracking-widest">03 Mission Profile</span>
-                                                 <p className="text-slate-400 text-sm italic mt-1 line-clamp-2">"{activeCase.note || 'No context provided.'}"</p>
-                                             </div>
-                                         </div>
-                                     </div>
+                            <div className="h-full flex flex-col items-center max-w-6xl mx-auto pt-4 pb-10 gap-6">
+                                <div className="w-full bg-navy-900 border border-navy-800 rounded-2xl p-5 relative overflow-hidden shrink-0">
+                                    <div className="absolute top-0 right-0 p-4 opacity-5"><Target className="w-24 h-24 text-gold-500" /></div>
+                                    <div className="relative z-10 flex items-start gap-4">
+                                        <div className="p-3 bg-navy-950 rounded-lg border border-navy-800"><Fingerprint className="w-6 h-6 text-gold-500" /></div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-gold-500 uppercase tracking-widest">03 Mission Profile</span>
+                                            <p className="text-slate-400 text-sm italic mt-1 line-clamp-2">"{activeCase.note || 'No context provided.'}"</p>
+                                        </div>
+                                    </div>
+                                </div>
 
-                                     <div className="w-full bg-navy-900 border border-navy-800 rounded-xl p-5 relative overflow-hidden shrink-0">
-                                         <div className="grid gap-3 md:grid-cols-[240px_minmax(0,1fr)] md:items-end">
-                                             <div className="space-y-2">
-                                                 <Combobox
-                                                     label="04 Choose Adversary"
-                                                     options={opponentOptions}
-                                                     value={selectedOpponent}
-                                                     onChange={handleOpponentChange}
-                                                     placeholder="Select an adversary"
-                                                 />
-                                                 {showCustomOpponentInput && (
-                                                     <div className="animate-fade-in mt-2">
-                                                         <label className="text-[10px] font-bold text-gold-500 uppercase tracking-widest pl-1">
-                                                             Specify Adversary Name
-                                                         </label>
-                                                         <div className="mt-1.5">
-                                                             <input
-                                                                 type="text"
-                                                                 value={customOpponent}
-                                                                 onChange={(event) => setCustomOpponent(event.target.value)}
-                                                                 onBlur={handleCustomOpponentCommit}
-                                                                 onKeyDown={(event) => {
-                                                                     if (event.key === "Enter") {
-                                                                         event.preventDefault();
-                                                                         handleCustomOpponentCommit();
-                                                                     }
-                                                                 }}
-                                                                 placeholder="e.g. Bob"
-                                                                 className="w-full bg-navy-900/50 border border-gold-500/50 rounded-lg p-3 text-sm text-slate-200 outline-none"
-                                                             />
-                                                         </div>
-                                                     </div>
-                                                 )}
-                                             </div>
-                                             <div className="md:pt-5">
-                                                 <div className="relative">
-                                                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                                                     <input
-                                                         type="text"
-                                                         placeholder={
-                                                             selectedOpponent && selectedOpponent !== "Other"
-                                                                 ? `${selectedOpponent}'s Name (Optional)`
-                                                                 : "Adversary's Name (Optional)"
-                                                         }
-                                                         value={senderName}
-                                                         onChange={(event) => setSenderName(event.target.value)}
-                                                         disabled={isAnalyzing || activeCase.isClosed || !!activeCase.demoScenarioId}
-                                                         autoComplete="off"
-                                                         className="w-full bg-navy-950 border border-navy-800 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-gold-500/20"
-                                                     />
-                                                 </div>
-                                             </div>
-                                         </div>
-                                     </div>
-                                     
-                                     {/* Input Form */}
-                                     <div className="w-full min-h-[400px]">
-                                      <InputSection 
-                                         inputText={inputText} setInputText={setInputText}
-                                         senderName={senderName} setSenderName={setSenderName}
-                                         isAnalyzing={isAnalyzing} isCaseClosed={activeCase.isClosed}
-                                         analysisError={analysisError} setAnalysisError={setAnalysisError}
-                                         activeCase={activeCase} onSubmit={handleAnalyze}
-                                         roundNumber={rounds.length + 1} isHero={true}
-                                         isDemo={isDemo}
-                                         demoHasNext={demoHasNext}
-                                      />
-                                  </div>
-                             </div>
-                        ) : (
-                                 <InputSection 
-                                     inputText={inputText} setInputText={setInputText}
-                                     senderName={senderName} setSenderName={setSenderName}
-                                     isAnalyzing={isAnalyzing} isCaseClosed={activeCase.isClosed}
-                                     analysisError={analysisError} setAnalysisError={setAnalysisError}
-                                     activeCase={activeCase} onSubmit={handleAnalyze}
-                                     roundNumber={rounds.length + 1} isHero={false}
-                                     isDemo={isDemo}
-                                     demoHasNext={demoHasNext}
-                                 />
-                            )}
-                         </div>
+                                <div className="w-full bg-navy-900 border border-navy-800 rounded-2xl shrink-0">
+                                    <div className="px-5 pt-5 grid gap-4 text-[10px] font-bold text-gold-500 uppercase tracking-widest md:grid-cols-[320px_minmax(0,1fr)] md:items-center">
+                                        <span>04 Choose Adversary</span>
+                                        <label htmlFor="adversary-name" className="pl-1">
+                                            Specify Adversary Name
+                                        </label>
+                                    </div>
+                                        <div className="p-5 pt-3 grid gap-4 md:grid-cols-[320px_minmax(0,1fr)] md:items-center">
+                                            <div className="space-y-2">
+                                                <Combobox
+                                                    options={opponentOptions}
+                                                    value={selectedOpponent}
+                                                    onChange={handleOpponentChange}
+                                                    placeholder="Select an adversary"
+                                                />
+                                            </div>
+                                        <div className="relative">
+                                            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                                            <input
+                                                id="adversary-name"
+                                                type="text"
+                                                aria-label="Adversary name (optional)"
+                                                placeholder={
+                                                    selectedOpponent && selectedOpponent !== "Other"
+                                                        ? `${selectedOpponent}'s Name (Optional)`
+                                                        : "Adversary's Name (Optional)"
+                                                }
+                                                value={senderName}
+                                                onChange={(event) => setSenderName(event.target.value)}
+                                                disabled={isAnalyzing || activeCase.isClosed || !!activeCase.demoScenarioId}
+                                                autoComplete="off"
+                                                className="w-full bg-navy-950 border border-navy-800 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-gold-500/20"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className="w-full flex-1 min-h-[520px]">
+                                    <InputSection 
+                                        inputText={inputText} setInputText={setInputText}
+                                        senderName={senderName}
+                                        isAnalyzing={isAnalyzing} isCaseClosed={activeCase.isClosed}
+                                        analysisError={analysisError} setAnalysisError={setAnalysisError}
+                                        activeCase={activeCase} onSubmit={handleAnalyze}
+                                        roundNumber={rounds.length + 1}
+                                        maxChars={MAX_EVIDENCE_CHARS}
+                                        canCondense={Boolean(canCondense)}
+                                        isCondensing={isCondensing}
+                                        onCondense={handleCondenseEvidence}
+                                        isDemo={isDemo}
+                                        demoHasNext={demoHasNext}
+                                    />
+                                </div>
+                            </div>
+                        </div>
                     ) : (
                         currentRound && (
                             <SingleRoundView 

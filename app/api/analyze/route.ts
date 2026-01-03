@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const MAX_INPUT_CHARS = 15000;
+  const MAX_INPUT_CHARS = 20000;
   const CONTEXT_SUMMARY_LIMIT_CHARS = 40000;
   const BUSINESS_OUTPUT_LIMIT = 2000;
   const truncatedText = (currentText || "").slice(0, MAX_INPUT_CHARS);

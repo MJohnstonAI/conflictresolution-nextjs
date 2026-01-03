@@ -8,41 +8,12 @@ import { store } from '../services/store';
 import { exportService } from '../services/export';
 import { Button, Badge } from '../components/UI';
 import { Skeleton, DropdownMenu, AlertDialog, toast } from '../components/DesignSystem';
-import { Archive, Search, Trash2, Pencil, Printer, MoreVertical, FileText, AlertCircle } from 'lucide-react';
-
-const EditCaseModal: React.FC<any> = ({ c, onClose, onSave }) => {
-  const [title, setTitle] = useState(c.title);
-  const [note, setNote] = useState(c.note || "");
-  const [isSaving, setIsSaving] = useState(false);
-  const handleSave = async () => {
-    if (isSaving) return;
-    setIsSaving(true);
-    try {
-      await onSave({ ...c, title, note });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm animate-fade-in">
-       <div className="bg-navy-900 border border-navy-800 rounded-2xl w-full max-w-sm p-6 space-y-4">
-          <h3 className="font-bold text-slate-100">Edit Case</h3>
-          <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-navy-950 border border-navy-800 rounded p-2 text-slate-100" />
-          <textarea value={note} onChange={e => setNote(e.target.value)} className="w-full bg-navy-950 border border-navy-800 rounded p-2 text-slate-100" />
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={isSaving}>Cancel</Button>
-            <Button onClick={handleSave} disabled={isSaving}>Save</Button>
-          </div>
-       </div>
-    </div>
-  );
-};
+import { Archive, Search, Trash2, Printer, MoreVertical, FileText, AlertCircle, Eye } from 'lucide-react';
 
 export const Vault: React.FC = () => {
     const router = useRouter();
     const [cases, setCases] = useState<Case[]>([]);
     const [loading, setLoading] = useState(true);
-    const [editingCase, setEditingCase] = useState<Case | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [account, setAccount] = useState<UserAccount>({
         premiumSessions: 0,
@@ -96,15 +67,6 @@ export const Vault: React.FC = () => {
         setCases(prev => prev.filter(c => c.id !== deleteId));
         toast("Case deleted successfully.", "success");
         setDeleteId(null);
-    };
-
-    const handleEdit = (c: Case) => { setEditingCase(c); };
-    
-    const handleSaveEdit = async (updated: Case) => { 
-        await store.saveCase(updated); 
-        fetchData(); 
-        setEditingCase(null); 
-        toast("Case updated.", "success");
     };
 
     const handleExportMarkdown = async (c: Case) => {
@@ -226,9 +188,9 @@ export const Vault: React.FC = () => {
                           <DropdownMenu 
                              trigger={<button className="p-2 text-slate-400 hover:text-slate-100 rounded-lg hover:bg-navy-800 transition-colors"><MoreVertical className="w-4 h-4" /></button>}
                              items={[
+                               { label: "View Details", icon: Eye, onClick: () => router.push(`/case/${c.id}`) },
                                { label: "Export Markdown", icon: FileText, onClick: () => handleExportMarkdown(c) },
                                { label: "Print / PDF", icon: Printer, onClick: () => handleExportPDF(c) },
-                               { label: "Edit Details", icon: Pencil, onClick: () => handleEdit(c) },
                                { label: "Delete Case", icon: Trash2, onClick: () => setDeleteId(c.id), variant: 'danger' }
                              ]}
                           />
@@ -278,8 +240,6 @@ export const Vault: React.FC = () => {
             })}
           </div>
         )}
-        
-        {editingCase && <EditCaseModal c={editingCase} onClose={() => setEditingCase(null)} onSave={handleSaveEdit} />}
         
         <AlertDialog 
            open={!!deleteId} 

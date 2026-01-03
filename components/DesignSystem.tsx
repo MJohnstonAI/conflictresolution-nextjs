@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, createContext, useContext } from 'react';
-import { X, Check, ChevronDown, Search, Loader2, AlertTriangle, MoreVertical, Info } from 'lucide-react';
+import { X, Check, ChevronDown, Loader2, AlertTriangle, MoreVertical, Info } from 'lucide-react';
 
 // --- UTILS ---
 const cn = (...classes: (string | undefined | null | false)[]) => classes.filter(Boolean).join(' ');
@@ -155,10 +155,7 @@ interface ComboboxProps {
 
 export const Combobox: React.FC<ComboboxProps> = ({ options, value, onChange, placeholder = "Select...", label }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState("");
   const ref = useRef<HTMLDivElement>(null);
-
-  const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -183,27 +180,14 @@ export const Combobox: React.FC<ComboboxProps> = ({ options, value, onChange, pl
        
        {isOpen && (
          <div className="absolute top-full left-0 right-0 mt-2 bg-navy-900 border border-navy-800 rounded-xl shadow-2xl z-50 max-h-60 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
-            <div className="p-2 border-b border-navy-800">
-                <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
-                    <input 
-                      autoFocus
-                      type="text" 
-                      className="w-full bg-navy-950 border border-navy-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-gold-500/50"
-                      placeholder="Search..."
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                </div>
-            </div>
             <div className="overflow-y-auto flex-1 p-1 scrollbar-thin scrollbar-thumb-navy-700">
-               {filtered.length === 0 ? (
-                  <div className="p-3 text-xs text-slate-500 text-center">No results found.</div>
+               {options.length === 0 ? (
+                  <div className="p-3 text-xs text-slate-500 text-center">No options available.</div>
                ) : (
-                   filtered.map(opt => (
+                   options.map(opt => (
                        <button
                          key={opt}
-                         onClick={() => { onChange(opt); setIsOpen(false); setSearch(""); }}
+                         onClick={() => { onChange(opt); setIsOpen(false); }}
                          className={cn(
                            "w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between hover:bg-navy-800 transition-colors",
                            value === opt ? "bg-navy-800 text-gold-400 font-bold" : "text-slate-300"

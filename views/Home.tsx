@@ -118,9 +118,12 @@ const Home: React.FC = () => {
   const [userName, setUserName] = useState<string | null>(null);
 
   useEffect(() => {
-    const state = consumeRouteState<{ templateText?: string; opponentType?: string }>("/");
+    const state = consumeRouteState<{ templateText?: string; opponentType?: string; planType?: PlanType }>("/");
     if (state?.templateText) setText(state.templateText);
     if (state?.opponentType) setPrefillOpponent(state.opponentType);
+    if (state?.planType === "standard" || state?.planType === "premium") {
+      setSelectedPackage(state.planType);
+    }
 
     store.getAccount().then((acc) => {
       if (acc.name) setUserName(acc.name);
@@ -320,6 +323,7 @@ const Home: React.FC = () => {
               Select which session credits to use for this analysis.
             </span>
           </h2>
+          <p className="text-xs text-slate-400">Sessions fund AI calls.</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3" role="radiogroup" aria-label="Package selection">
             <label
               className={`flex flex-col gap-3 rounded-xl border px-4 py-4 transition-all ${
@@ -419,20 +423,27 @@ const Home: React.FC = () => {
             </label>
           </div>
           {showPackageNotice && selectedSessions <= 0 && (
-            <div className="text-xs text-rose-100 border border-rose-400/70 bg-rose-500/20 rounded-xl px-3 py-2 flex flex-wrap items-center gap-2">
+            <div className="text-xs text-rose-100 border border-rose-400/70 bg-rose-500/20 rounded-xl px-3 py-2 flex flex-wrap items-center gap-3">
               <span>
                 No session credits available for{" "}
                 {selectedPackage === "standard" ? "Standard" : "Premium"} package.
               </span>
-              <span className="font-semibold">Click here to</span>
-              <button
-                type="button"
-                onClick={() => router.push("/unlock/credits")}
-                className="text-white underline underline-offset-4 font-semibold"
-              >
-                {purchaseLabel}
-              </button>
-              <span>to begin.</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => router.push("/unlock/credits")}
+                  className="px-3 py-1.5 rounded-lg bg-gold-500 text-navy-950 text-[11px] font-bold uppercase tracking-widest hover:bg-gold-400 transition-colors"
+                >
+                  Purchase sessions
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push("/demo")}
+                  className="px-3 py-1.5 rounded-lg border border-rose-300/60 text-[11px] font-bold uppercase tracking-widest text-rose-100 hover:bg-rose-500/20 transition-colors"
+                >
+                  Try Demo
+                </button>
+              </div>
             </div>
           )}
         </div>

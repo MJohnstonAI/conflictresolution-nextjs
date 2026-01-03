@@ -10,8 +10,8 @@ import { requireAiAuth } from "@/lib/server/ai-auth";
 
 export const runtime = "nodejs";
 
-const DEFAULT_LIMIT_CHARS = 15000;
-const TARGET_LIMIT_CHARS = 12000;
+const DEFAULT_LIMIT_CHARS = 20000;
+const TARGET_LIMIT_CHARS = 16000;
 
 const errorResponse = (message: string, status: number) =>
   NextResponse.json({ error: { message, upstreamStatus: status } }, { status });
