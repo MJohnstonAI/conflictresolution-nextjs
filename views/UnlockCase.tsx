@@ -5,7 +5,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { store } from '../services/store';
 import { authService } from '../services/auth';
-import { getBillingStatus, simulatePurchase, BILLING_PRODUCT_IDS } from '../services/billing';
+import { simulatePurchase, BILLING_PRODUCT_IDS } from '../services/billing';
 import { Button, Badge } from '../components/UI';
 import { toast } from '../components/DesignSystem';
 import { Zap, Crown, CheckCircle2, ArrowLeft, BrainCircuit, FileText, Sparkles, Briefcase, Lock } from 'lucide-react';
@@ -23,10 +23,20 @@ export const UnlockCase: React.FC = () => {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [loading, setLoading] = useState(false);
-  const billingStatus = getBillingStatus();
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [authEmail, setAuthEmail] = useState("");
+  const [verificationSending, setVerificationSending] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
+  const needsName = isSignedIn && authReady && !account.name?.trim();
+  const requiresVerification = isSignedIn && authReady && !emailVerified;
+  const purchaseBlocked = loading || needsName || requiresVerification;
 
   useEffect(() => {
-    store.getAccount().then(setAccount);
+    store.getAccount().then((acc) => {
+      setAccount(acc);
+      setNameDraft(acc.name || "");
+    });
   }, []);
 
   useEffect(() => {
@@ -36,6 +46,16 @@ export const UnlockCase: React.FC = () => {
       if (!isMounted) return;
       setIsSignedIn(Boolean(session));
       setAuthReady(true);
+      if (session) {
+        authService.getUser().then((user) => {
+          if (!isMounted || !user) return;
+          setAuthEmail(user.email || "");
+          setEmailVerified(Boolean(user.email_confirmed_at || user.confirmed_at));
+        }).catch(() => {
+          if (!isMounted) return;
+          setEmailVerified(false);
+        });
+      }
     });
 
     const {
@@ -43,6 +63,18 @@ export const UnlockCase: React.FC = () => {
     } = authService.onAuthStateChange((_event, session) => {
       setIsSignedIn(Boolean(session));
       setAuthReady(true);
+      if (!session) {
+        setAuthEmail("");
+        setEmailVerified(false);
+        return;
+      }
+      authService.getUser().then((user) => {
+        if (!user) return;
+        setAuthEmail(user.email || "");
+        setEmailVerified(Boolean(user.email_confirmed_at || user.confirmed_at));
+      }).catch(() => {
+        setEmailVerified(false);
+      });
     });
 
     return () => {
@@ -52,6 +84,14 @@ export const UnlockCase: React.FC = () => {
   }, []);
 
   const handleBuySessions = async (qty: number, productId: string, type: 'standard' | 'premium') => {
+    if (needsName) {
+      toast("Add a name or pseudonym before purchasing sessions.", "error");
+      return;
+    }
+    if (requiresVerification) {
+      toast("Verify your email before purchasing sessions.", "error");
+      return;
+    }
     setLoading(true);
     const result = await simulatePurchase(productId as any);
 
@@ -69,6 +109,44 @@ export const UnlockCase: React.FC = () => {
       toast("Purchase failed: " + result.error, "error");
     }
     setLoading(false);
+  };
+
+  const handleSaveName = async () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed) {
+      toast("Name or pseudonym is required.", "error");
+      return;
+    }
+    setNameSaving(true);
+    try {
+      await store.updateUserName(trimmed);
+      const updated = await store.getAccount();
+      setAccount(updated);
+      setNameDraft(updated.name || trimmed);
+      toast("Profile updated.", "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to update profile.";
+      toast(message, "error");
+    } finally {
+      setNameSaving(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!authEmail) {
+      toast("Email address missing. Please sign in again.", "error");
+      return;
+    }
+    setVerificationSending(true);
+    try {
+      await authService.resendVerification(authEmail);
+      toast("Verification email sent.", "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to resend verification.";
+      toast(message, "error");
+    } finally {
+      setVerificationSending(false);
+    }
   };
 
   return (
@@ -89,6 +167,51 @@ export const UnlockCase: React.FC = () => {
           </div>
         ) : isSignedIn ? (
           <>
+            {needsName && (
+              <div className="max-w-xl mx-auto w-full bg-navy-900/60 border border-gold-500/20 rounded-2xl p-6 text-center space-y-4">
+                <div className="text-[10px] font-bold text-gold-500 uppercase tracking-widest">Profile Required</div>
+                <h2 className="text-lg font-serif font-bold text-slate-100">Set your name or pseudonym</h2>
+                <p className="text-sm text-slate-400">
+                  We need a name to personalize confirmations and payment notifications.
+                </p>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Agent Grey"
+                    value={nameDraft}
+                    onChange={(event) => setNameDraft(event.target.value)}
+                    className="w-full bg-navy-950 border border-navy-800 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-gold-500/30"
+                  />
+                </div>
+                <Button
+                  fullWidth
+                  onClick={handleSaveName}
+                  disabled={nameSaving}
+                  className="bg-gold-600 text-navy-950 font-bold hover:bg-gold-500"
+                >
+                  {nameSaving ? "Saving..." : "Save Name"}
+                </Button>
+              </div>
+            )}
+
+            {requiresVerification && (
+              <div className="max-w-xl mx-auto w-full bg-navy-900/60 border border-amber-500/20 rounded-2xl p-6 text-center space-y-4">
+                <div className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Email Verification Required</div>
+                <h2 className="text-lg font-serif font-bold text-slate-100">Verify your email to purchase sessions</h2>
+                <p className="text-sm text-slate-400">
+                  We send payment confirmations and activations to your verified inbox.
+                </p>
+                <Button
+                  fullWidth
+                  onClick={handleResendVerification}
+                  disabled={verificationSending}
+                  className="bg-amber-500 text-navy-950 font-bold hover:bg-amber-400"
+                >
+                  {verificationSending ? "Sending..." : "Resend Verification Email"}
+                </Button>
+              </div>
+            )}
+
             {/* Wallet Status */}
             <div className="grid grid-cols-2 gap-4 max-w-lg mx-auto w-full">
                 <div className="bg-navy-900/50 border border-blue-500/20 rounded-2xl p-6 text-center space-y-2">
@@ -124,7 +247,7 @@ export const UnlockCase: React.FC = () => {
                   <li className="flex items-center gap-2 text-sm text-slate-300"><FileText className="w-4 h-4 text-blue-500" /> Flexible sessions across cases</li>
                 </ul>
                 
-                <Button fullWidth onClick={() => handleBuySessions(10, BILLING_PRODUCT_IDS.STANDARD_SESSION_10, 'standard')} disabled={loading} className="bg-blue-600 text-white hover:bg-blue-500 font-bold border-none">Buy 10 Sessions</Button>
+                <Button fullWidth onClick={() => handleBuySessions(10, BILLING_PRODUCT_IDS.STANDARD_SESSION_10, 'standard')} disabled={purchaseBlocked} className="bg-blue-600 text-white hover:bg-blue-500 font-bold border-none">Buy 10 Sessions</Button>
               </div>
 
               {/* PREMIUM SINGLE */}
@@ -141,7 +264,7 @@ export const UnlockCase: React.FC = () => {
                   <li className="flex items-center gap-2 text-sm text-slate-300"><Crown className="w-4 h-4 text-gold-500" /> Flexible sessions across cases</li>
                 </ul>
                 
-                <Button fullWidth onClick={() => handleBuySessions(40, BILLING_PRODUCT_IDS.PREMIUM_SESSION_40, 'premium')} disabled={loading} className="bg-navy-800 text-white hover:bg-navy-700">Buy 40 Sessions</Button>
+                <Button fullWidth onClick={() => handleBuySessions(40, BILLING_PRODUCT_IDS.PREMIUM_SESSION_40, 'premium')} disabled={purchaseBlocked} className="bg-navy-800 text-white hover:bg-navy-700">Buy 40 Sessions</Button>
               </div>
               
               {/* PREMIUM PACK */}
@@ -160,7 +283,7 @@ export const UnlockCase: React.FC = () => {
                   <li className="flex items-center gap-2 text-sm text-slate-100"><Sparkles className="w-4 h-4 text-gold-500" /> Save 10%</li>
                 </ul>
                 
-                <Button fullWidth onClick={() => handleBuySessions(120, BILLING_PRODUCT_IDS.PREMIUM_SESSION_120, 'premium')} disabled={loading} className="bg-gold-600 text-navy-950 font-bold hover:bg-gold-500">Buy 120 Sessions</Button>
+                <Button fullWidth onClick={() => handleBuySessions(120, BILLING_PRODUCT_IDS.PREMIUM_SESSION_120, 'premium')} disabled={purchaseBlocked} className="bg-gold-600 text-navy-950 font-bold hover:bg-gold-500">Buy 120 Sessions</Button>
               </div>
 
               {/* PREMIUM CONSULTANT */}
@@ -178,7 +301,7 @@ export const UnlockCase: React.FC = () => {
                   <li className="flex items-center gap-2 text-sm text-slate-300"><Briefcase className="w-4 h-4 text-gold-500" /> Save 20%</li>
                 </ul>
                 
-                <Button fullWidth onClick={() => handleBuySessions(400, BILLING_PRODUCT_IDS.PREMIUM_SESSION_400, 'premium')} disabled={loading} className="bg-navy-800 text-white hover:bg-navy-700">Buy 400 Sessions</Button>
+                <Button fullWidth onClick={() => handleBuySessions(400, BILLING_PRODUCT_IDS.PREMIUM_SESSION_400, 'premium')} disabled={purchaseBlocked} className="bg-navy-800 text-white hover:bg-navy-700">Buy 400 Sessions</Button>
               </div>
             </div>
           </>

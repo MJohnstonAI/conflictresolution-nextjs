@@ -247,6 +247,7 @@ const ModelListModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 };
 
 const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const router = useRouter();
   const [currentTheme, setCurrentTheme] = useState<Theme>(themeService.get());
   const [isAdmin, setIsAdmin] = useState(false);
   const [standardSessions, setStandardSessions] = useState(0);
@@ -260,6 +261,11 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [modelsSaving, setModelsSaving] = useState<PlanKey | null>(null);
+  const [authUser, setAuthUser] = useState<any | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [linkingProvider, setLinkingProvider] = useState<string | null>(null);
+  const [unlinkingProvider, setUnlinkingProvider] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -270,6 +276,21 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       setIsAdmin(account.isAdmin);
       setStandardSessions(account.standardSessions || 0);
       setPremiumSessions(account.premiumSessions || 0);
+
+      setAuthLoading(true);
+      setAuthError(null);
+      try {
+        const user = await authService.getUser();
+        if (isMounted) setAuthUser(user);
+      } catch (err) {
+        if (isMounted) {
+          setAuthUser(null);
+          setAuthError("Sign in to manage sign-in methods.");
+        }
+      } finally {
+        if (isMounted) setAuthLoading(false);
+      }
+
       if (!account.isAdmin) return;
 
       setModelsLoading(true);
@@ -310,6 +331,47 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     store.updateUserTheme(theme);
   };
 
+  const refreshAuthUser = async () => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const user = await authService.getUser();
+      setAuthUser(user);
+    } catch (err) {
+      setAuthUser(null);
+      setAuthError("Sign in to manage sign-in methods.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLinkGoogle = async () => {
+    setLinkingProvider("google");
+    setAuthError(null);
+    try {
+      await authService.linkIdentity("google");
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "Unable to link Google.");
+      setLinkingProvider(null);
+    }
+  };
+
+  const handleUnlinkGoogle = async () => {
+    if (!authUser?.identities) return;
+    const googleIdentity = authUser.identities.find((identity: any) => identity.provider === "google");
+    if (!googleIdentity) return;
+    setUnlinkingProvider("google");
+    setAuthError(null);
+    try {
+      await authService.unlinkIdentity(googleIdentity);
+      await refreshAuthUser();
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "Unable to unlink Google.");
+    } finally {
+      setUnlinkingProvider(null);
+    }
+  };
+
   const providerGroups = useMemo(() => buildProviderGroups(availableModels), [availableModels]);
   const standardGroups = useMemo(
     () => ensureCurrentModelGroup(providerGroups, modelSelections.standard),
@@ -319,6 +381,20 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     () => ensureCurrentModelGroup(providerGroups, modelSelections.premium),
     [providerGroups, modelSelections.premium]
   );
+
+  const identities = authUser?.identities ?? [];
+  const providerList = identities.length
+    ? identities.map((identity: any) => identity.provider)
+    : Array.isArray(authUser?.app_metadata?.providers)
+      ? authUser.app_metadata.providers
+      : authUser?.app_metadata?.provider
+        ? [authUser.app_metadata.provider]
+        : [];
+  const providerSet = new Set(providerList);
+  const googleLinked = providerSet.has("google");
+  const emailLinked = providerSet.has("email");
+  const canUnlink = identities.length > 1;
+  const emailVerified = Boolean(authUser?.email_confirmed_at || authUser?.confirmed_at);
 
   const handleModelChange = async (planType: PlanKey, modelSlug: string) => {
     if (!modelSlug || modelSlug === modelSelections[planType]) return;
@@ -392,6 +468,65 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             >
               1 Session generates strategy + mediation-style guidance + draft responses for one round.
             </p>
+          </div>
+          <div className="space-y-3">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+              Sign-in Methods
+            </label>
+            {authLoading ? (
+              <div className="text-xs text-slate-400">Loading sign-in methods...</div>
+            ) : authError ? (
+              <div className="text-xs text-rose-400">{authError}</div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-navy-800 bg-navy-950/60 px-3 py-3">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Google</div>
+                    <div className="text-xs text-slate-400">{googleLinked ? "Linked" : "Not linked"}</div>
+                  </div>
+                  {googleLinked ? (
+                    <button
+                      type="button"
+                      onClick={handleUnlinkGoogle}
+                      disabled={!canUnlink || unlinkingProvider === "google"}
+                      className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border border-navy-700 text-slate-300 hover:text-white hover:border-navy-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {unlinkingProvider === "google" ? "Unlinking..." : "Unlink"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleLinkGoogle}
+                      disabled={linkingProvider === "google"}
+                      className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border border-blue-500 text-blue-300 hover:text-white hover:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {linkingProvider === "google" ? "Linking..." : "Link"}
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-navy-800 bg-navy-950/60 px-3 py-3">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Email + Password</div>
+                    <div className="text-xs text-slate-400">{emailLinked ? "Available" : "Not configured"}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => router.push("/auth?view=update&stay=1")}
+                    className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border border-navy-700 text-slate-300 hover:text-white hover:border-navy-600"
+                  >
+                    Set Password
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  If you joined with Google or a Magic Link, set a password to enable email + password sign-in.
+                </p>
+                {!emailVerified && (
+                  <p className="text-[11px] text-amber-400">
+                    Email not verified. Payments and activations require verification.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
           <div className="space-y-3">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">

@@ -32,15 +32,12 @@ export const authService = {
     return data;
   },
 
-  // Resend Verification Email
-  resendVerification: async (email: string, name?: string) => {
-    // For users created via OTP/Magic Link, we resend via OTP
-    const { error } = await supabase.auth.signInWithOtp({
+  // Resend Verification Email (Signup confirmation)
+  resendVerification: async (email: string) => {
+    const { error } = await supabase.auth.resend({
+      type: "signup",
       email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth`,
-        data: name ? { full_name: name } : undefined
-      }
+      options: { emailRedirectTo: `${window.location.origin}/auth` },
     });
     if (error) throw error;
   },
@@ -66,6 +63,23 @@ export const authService = {
         redirectTo: `${window.location.origin}/auth`, 
       }
     });
+    if (error) throw error;
+    return data;
+  },
+
+  // Link additional identity providers to the current user
+  linkIdentity: async (provider: "google") => {
+    const { data, error } = await supabase.auth.linkIdentity({
+      provider,
+      options: { redirectTo: `${window.location.origin}/auth` },
+    });
+    if (error) throw error;
+    return data;
+  },
+
+  // Unlink identity providers from the current user
+  unlinkIdentity: async (identity: any) => {
+    const { data, error } = await supabase.auth.unlinkIdentity(identity);
     if (error) throw error;
     return data;
   },
@@ -97,6 +111,13 @@ export const authService = {
   getSession: async () => {
     const { data } = await supabase.auth.getSession();
     return data.session;
+  },
+
+  // Simple getter for current user
+  getUser: async () => {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) throw error;
+    return data.user;
   },
 
   // Real-time listener for login/logout events

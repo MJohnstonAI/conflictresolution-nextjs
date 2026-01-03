@@ -355,6 +355,21 @@ export const store = {
       .update({ [dbCol]: current + amount })
       .eq('id', user.id);
   },
+
+  updateUserName: async (name: string): Promise<void> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Sign in to update your name.");
+      await supabase
+        .from("profiles")
+        .update({ name })
+        .eq("id", user.id);
+      await supabase.auth.updateUser({ data: { full_name: name } });
+    } catch (e) {
+      console.warn("Name update failed:", e);
+      throw e;
+    }
+  },
   
   // --- CASES ---
   
