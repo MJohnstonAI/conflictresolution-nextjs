@@ -10,6 +10,27 @@ import { Button, Badge } from '../components/UI';
 import { Skeleton, DropdownMenu, AlertDialog, toast } from '../components/DesignSystem';
 import { Archive, Search, Trash2, Printer, MoreVertical, FileText, AlertCircle, Eye } from 'lucide-react';
 
+const getRelativeTimeLabel = (dateISO: string) => {
+    const timestamp = new Date(dateISO).getTime();
+    if (!Number.isFinite(timestamp)) return "Unknown";
+    const diffMs = Date.now() - timestamp;
+    if (diffMs < 0) return "just now";
+    const seconds = Math.round(diffMs / 1000);
+    if (seconds < 45) return "just now";
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.round(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    const weeks = Math.round(days / 7);
+    if (weeks < 5) return `${weeks}w ago`;
+    const months = Math.round(days / 30);
+    if (months < 12) return `${months}mo ago`;
+    const years = Math.round(days / 365);
+    return `${years}y ago`;
+};
+
 export const Vault: React.FC = () => {
     const router = useRouter();
     const [cases, setCases] = useState<Case[]>([]);
@@ -22,6 +43,7 @@ export const Vault: React.FC = () => {
         isAdmin: false,
         role: 'demo'
     });
+    const [caseActivityMap, setCaseActivityMap] = useState<Record<string, string>>({});
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [syncError, setSyncError] = useState(false);
   
@@ -33,6 +55,19 @@ export const Vault: React.FC = () => {
                 store.getCases(),
                 store.getAccount()
             ]);
+            const activityEntries = await Promise.all(
+                fetchedCases.map(async (c) => {
+                    try {
+                        const rounds = await store.getRounds(c.id);
+                        const latestRound = rounds[rounds.length - 1];
+                        const activityAt = latestRound?.createdAt || c.lastUpdatedAt || c.createdAt;
+                        return [c.id, activityAt] as const;
+                    } catch {
+                        return [c.id, c.lastUpdatedAt || c.createdAt] as const;
+                    }
+                })
+            );
+            setCaseActivityMap(Object.fromEntries(activityEntries));
             setCases(fetchedCases);
             setAccount(fetchedAccount);
             
@@ -82,10 +117,23 @@ export const Vault: React.FC = () => {
         exportService.printToPDF(c, rounds);
     };
   
-    const filteredCases = cases.filter(c => 
-        c.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        c.opponentType.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const filteredCases = useMemo(() => {
+        const query = searchQuery.toLowerCase();
+        return cases.filter(c =>
+            c.title.toLowerCase().includes(query) ||
+            c.opponentType.toLowerCase().includes(query)
+        );
+    }, [cases, searchQuery]);
+
+    const sortedCases = useMemo(() => {
+        const sorted = [...filteredCases];
+        sorted.sort((a, b) => {
+            const aTime = new Date(caseActivityMap[a.id] || a.lastUpdatedAt || a.createdAt).getTime();
+            const bTime = new Date(caseActivityMap[b.id] || b.lastUpdatedAt || b.createdAt).getTime();
+            return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+        });
+        return sorted;
+    }, [filteredCases, caseActivityMap]);
   
     return (
       <div className="flex flex-col w-full h-full animate-fade-in pb-20 md:pb-0 px-6 md:px-10">
@@ -170,7 +218,7 @@ export const Vault: React.FC = () => {
                 </div>
               ))}
             </div>
-        ) : filteredCases.length === 0 ? (
+        ) : sortedCases.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-400 min-h-[300px]">
             <Archive className="w-12 h-12 mb-4 opacity-20" />
             <p>{searchQuery ? "No matching cases found in your vault." : "Your vault is currently empty."}</p>
@@ -178,9 +226,11 @@ export const Vault: React.FC = () => {
         </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
-            {filteredCases.map(c => {
+            {sortedCases.map(c => {
                 const caseNum = caseNumberMap.get(c.id) || 0;
                 const roundsLogged = Math.max(0, c.roundsUsed);
+                const activityAt = caseActivityMap[c.id] || c.lastUpdatedAt || c.createdAt;
+                const activityLabel = getRelativeTimeLabel(activityAt);
 
                 return (
                    <div key={c.id} onClick={() => router.push(`/case/${c.id}`)} className={`group bg-navy-900 border rounded-2xl p-6 relative overflow-visible transition-all hover:shadow-2xl hover:shadow-black/40 cursor-pointer ${c.planType === 'premium' ? 'border-gold-500/20 hover:border-gold-500/60 bg-gradient-to-br from-navy-900 to-navy-950' : 'border-navy-800 hover:border-navy-700'}`}>
@@ -231,8 +281,10 @@ export const Vault: React.FC = () => {
                         </div>
                         
                         <div className="flex justify-between items-center text-[9px] text-slate-500 font-bold uppercase tracking-wider px-0.5">
-                            <span>Started</span>
-                            <span className="font-mono text-slate-400">{new Date(c.createdAt).toLocaleDateString()}</span>
+                            <span>Last activity</span>
+                            <span className="font-mono text-slate-400" title={new Date(activityAt).toLocaleString()}>
+                                {activityLabel}
+                            </span>
                         </div>
                       </div>
                    </div>

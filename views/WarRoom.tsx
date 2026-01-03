@@ -15,6 +15,17 @@ import { setRouteState } from '../lib/route-state';
 import { authService } from '../services/auth';
 
 const MAX_EVIDENCE_CHARS = 20000;
+const STANDARD_ANALYSIS_STAGES = [
+    "Analyzing perspectives...",
+    "Identifying common ground...",
+    "Drafting resolution..."
+];
+const PREMIUM_ANALYSIS_STAGES = [
+    "Analyzing perspectives...",
+    "Mapping power dynamics...",
+    "Assessing legal risk...",
+    "Drafting resolution..."
+];
 
 const getSortedOpponentOptions = (): OpponentType[] => {
     const opts: OpponentType[] = [
@@ -170,10 +181,12 @@ interface InputSectionProps {
     onCondense: () => void;
     isDemo?: boolean;
     demoHasNext?: boolean;
+    analysisStages?: string[];
+    analysisStageIndex?: number;
 }
 
 const InputSection: React.FC<InputSectionProps> = memo(({ 
-    inputText, setInputText, senderName, isAnalyzing, isCaseClosed, analysisError, setAnalysisError, activeCase, onSubmit, roundNumber, maxChars, canCondense, isCondensing, onCondense, isDemo = false, demoHasNext = true
+    inputText, setInputText, senderName, isAnalyzing, isCaseClosed, analysisError, setAnalysisError, activeCase, onSubmit, roundNumber, maxChars, canCondense, isCondensing, onCondense, isDemo = false, demoHasNext = true, analysisStages, analysisStageIndex
 }) => {
     const [isTyping, setIsTyping] = useState(false);
     const typingTimeoutRef = useRef<number | null>(null);
@@ -208,6 +221,9 @@ const InputSection: React.FC<InputSectionProps> = memo(({
         : "Analyze & Generate Response";
 
     const actionDisabled = isAnalyzing || isCaseClosed || (isDemo ? !demoHasNext : !inputText.trim());
+    const stageCount = analysisStages?.length ?? 0;
+    const stageIndex = stageCount > 0 ? Math.min(analysisStageIndex ?? 0, stageCount - 1) : 0;
+    const stageLabel = stageCount > 0 ? analysisStages?.[stageIndex] : null;
 
     return (
         <div className={containerClasses}>
@@ -261,6 +277,20 @@ const InputSection: React.FC<InputSectionProps> = memo(({
                     </div>
                 )}
             </div>
+
+            {!isDemo && isAnalyzing && stageLabel && (
+                <div className="mt-4 rounded-xl border border-navy-800 bg-navy-950/60 px-4 py-3 text-xs text-slate-300 animate-fade-in">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-gold-500/40 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-gold-500"></span>
+                        </span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Streaming analysis</span>
+                        <span className="text-[10px] text-slate-500">Stage {stageIndex + 1} / {stageCount}</span>
+                    </div>
+                    <div className="text-sm text-slate-200 mt-1">{stageLabel}</div>
+                </div>
+            )}
 
             <div className="mt-8">
                 <Button 
@@ -650,6 +680,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const [inputText, setInputText] = useState(initialText || "");
     const [senderName, setSenderName] = useState("");
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [analysisStageIndex, setAnalysisStageIndex] = useState(0);
     const [analysisError, setAnalysisError] = useState<string | null>(null);
     const [selectedOpponent, setSelectedOpponent] = useState<string>("");
     const [inputMode, setInputMode] = useState(true);
@@ -664,6 +695,11 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const isDemo = !!activeCase?.demoScenarioId && activeCase?.planType === "demo";
     const canCondense = !isDemo && account?.role !== "demo";
     const latestRoundIndex = rounds.length - 1;
+    const analysisStages = useMemo(() => {
+        if (isDemo) return [];
+        if (activeCase?.planType === "premium") return PREMIUM_ANALYSIS_STAGES;
+        return STANDARD_ANALYSIS_STAGES;
+    }, [activeCase?.planType, isDemo]);
 
     // Initial Load
     useEffect(() => {
@@ -724,6 +760,18 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         const seen = window.localStorage.getItem("cr_nav_hint_seen");
         if (!seen) setShowNavHint(true);
     }, []);
+
+    useEffect(() => {
+        if (!isAnalyzing || analysisStages.length === 0) {
+            setAnalysisStageIndex(0);
+            return;
+        }
+        setAnalysisStageIndex(0);
+        const interval = window.setInterval(() => {
+            setAnalysisStageIndex((prev) => (prev + 1 < analysisStages.length ? prev + 1 : prev));
+        }, 1800);
+        return () => window.clearInterval(interval);
+    }, [analysisStages, isAnalyzing]);
 
     useEffect(() => {
         if (isDemo) return;
@@ -1179,6 +1227,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                         onCondense={handleCondenseEvidence}
                                         isDemo={isDemo}
                                         demoHasNext={demoHasNext}
+                                        analysisStages={analysisStages}
+                                        analysisStageIndex={analysisStageIndex}
                                     />
                                 </div>
                             </div>
