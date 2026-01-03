@@ -11,11 +11,12 @@ import { getSiteUrl } from "@/lib/server/site-url";
 export const revalidate = 86400;
 
 type PageProps = {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 };
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const article = await getResourceArticleBySlug(params.slug);
+  const { slug } = await params;
+  const article = await getResourceArticleBySlug(slug);
   if (!article) {
     return {
       title: "Guide not found | Conflict Resolution",
@@ -32,7 +33,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function ResourceGuidePage({ params }: PageProps) {
-  const article = await getResourceArticleBySlug(params.slug);
+  const { slug } = await params;
+  const article = await getResourceArticleBySlug(slug);
   if (!article) return notFound();
 
   const related = await getRelatedResourceArticles(article.category, article.slug, 4);
