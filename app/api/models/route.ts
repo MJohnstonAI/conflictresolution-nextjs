@@ -5,6 +5,7 @@ import {
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
 import { requireAiAuth } from "@/lib/server/ai-auth";
+import { rateLimit, retryAfterSeconds } from "@/lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -18,6 +19,25 @@ export async function GET(request: Request) {
 
   const authGuard = await requireAiAuth(request);
   if (authGuard.ok === false) return authGuard.error;
+  if (!authGuard.userId) {
+    return errorResponse("Unauthorized", 401);
+  }
+
+  if (process.env.ENABLE_AI_RATE_LIMITING === "true") {
+    const limit = await rateLimit(`models:${authGuard.userId}`, 10, 60_000);
+    if (!limit.allowed) {
+      const retryAfter = retryAfterSeconds(limit.resetAt);
+      return NextResponse.json(
+        {
+          error: {
+            message: `Rate limit exceeded. Please wait ${retryAfter}s and try again.`,
+            upstreamStatus: 429,
+          },
+        },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } }
+      );
+    }
+  }
 
   try {
     const models = await fetchOpenRouterModels();

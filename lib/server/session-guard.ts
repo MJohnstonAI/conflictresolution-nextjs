@@ -27,12 +27,14 @@ export const consumeSession = async ({
   caseId,
   roundId,
   reason,
+  generationId,
 }: {
   userId?: string | null;
   planType?: string;
   caseId?: string | null;
   roundId?: string | null;
   reason?: string | null;
+  generationId?: string | null;
 }): Promise<SessionGuardResult> => {
   if (!supabaseAdmin) {
     return { ok: false, error: errorResponse("Server configuration error", 500) };
@@ -51,6 +53,7 @@ export const consumeSession = async ({
     p_case_id: caseId,
     p_round_id: roundId,
     p_reason: reason,
+    p_generation_id: generationId,
   });
 
   if (error || !data) {
@@ -74,12 +77,14 @@ export const refundSession = async ({
   caseId,
   roundId,
   reason,
+  generationId,
 }: {
   userId?: string | null;
   planType?: string;
   caseId?: string | null;
   roundId?: string | null;
   reason?: string | null;
+  generationId?: string | null;
 }): Promise<void> => {
   if (!supabaseAdmin || !userId) return;
   const plan = normalizePlan(planType);
@@ -89,5 +94,6 @@ export const refundSession = async ({
     p_case_id: caseId,
     p_round_id: roundId,
     p_reason: reason,
+    p_generation_id: generationId,
   });
 };

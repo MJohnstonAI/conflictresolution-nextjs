@@ -6,6 +6,7 @@ import {
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
 import { requireAiAuth } from "@/lib/server/ai-auth";
+import { rateLimit, retryAfterSeconds } from "@/lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,28 @@ export async function POST(request: NextRequest) {
 
   const authGuard = await requireAiAuth(request);
   if (authGuard.ok === false) return authGuard.error;
+  if (!authGuard.userId) {
+    return NextResponse.json(
+      { error: { message: "Unauthorized", upstreamStatus: 401 } },
+      { status: 401 }
+    );
+  }
+
+  if (process.env.ENABLE_AI_RATE_LIMITING === "true") {
+    const limit = await rateLimit(`summarize:${authGuard.userId}`, 4, 60_000);
+    if (!limit.allowed) {
+      const retryAfter = retryAfterSeconds(limit.resetAt);
+      return NextResponse.json(
+        {
+          error: {
+            message: `Rate limit exceeded. Please wait ${retryAfter}s and try again.`,
+            upstreamStatus: 429,
+          },
+        },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } }
+      );
+    }
+  }
 
   let body: any;
   try {
@@ -58,7 +81,7 @@ export async function POST(request: NextRequest) {
   `;
 
   try {
-    const modelSlug = await resolveModelSlug(caseInfo?.planType, authGuard.token);
+    const modelSlug = await resolveModelSlug(caseInfo?.planType, authGuard.token, authGuard.userId);
 
     const text = await callOpenRouterChat({
       model: modelSlug,

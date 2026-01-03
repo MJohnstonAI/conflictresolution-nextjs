@@ -60,11 +60,29 @@ export async function GET(request: Request) {
   if (!authGuard.userId) return errorResponse("Unauthorized", 401);
   if (!supabaseAdmin) return errorResponse("Server configuration error", 500);
 
-  const { data, error } = await supabaseAdmin
+  const url = new URL(request.url);
+  const showAll = url.searchParams.get("all") === "1";
+  const monthsParam = Number(url.searchParams.get("months"));
+  const lookbackMonths =
+    showAll || (Number.isFinite(monthsParam) && monthsParam <= 0)
+      ? null
+      : Number.isFinite(monthsParam) && monthsParam > 0
+        ? monthsParam
+        : 12;
+
+  let query = supabaseAdmin
     .from("session_events")
     .select("id, plan_type, delta, reason, created_at, case_id, round_id")
     .eq("user_id", authGuard.userId)
     .order("created_at", { ascending: false });
+
+  if (lookbackMonths) {
+    const cutoff = new Date();
+    cutoff.setUTCMonth(cutoff.getUTCMonth() - lookbackMonths);
+    query = query.gte("created_at", cutoff.toISOString());
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return errorResponse("Session ledger unavailable", 500);

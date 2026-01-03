@@ -29,6 +29,8 @@ type MonthlySummary = {
   days: DailySummary[];
 };
 
+const DEFAULT_MONTHS = 12;
+
 const formatMonth = (monthKey: string) => {
   const date = new Date(`${monthKey}-01T00:00:00Z`);
   return date.toLocaleString("en-US", { month: "long", year: "numeric" });
@@ -47,6 +49,7 @@ export const Ledger: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeMonth, setActiveMonth] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -54,7 +57,8 @@ export const Ledger: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch("/api/ledger", { cache: "no-store" });
+        const query = showAll ? "all=1" : `months=${DEFAULT_MONTHS}`;
+        const response = await fetch(`/api/ledger?${query}`, { cache: "no-store" });
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload?.data) {
           throw new Error(payload?.error?.message || "Unable to load session ledger.");
@@ -74,7 +78,7 @@ export const Ledger: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [showAll]);
 
   const activeSummary = useMemo(
     () => months.find((month) => month.month === activeMonth) || null,
@@ -97,6 +101,15 @@ export const Ledger: React.FC = () => {
           >
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
+          </button>
+        </div>
+        <div className="text-xs text-slate-500">
+          <button
+            type="button"
+            onClick={() => setShowAll((prev) => !prev)}
+            className="text-blue-400 hover:text-blue-300"
+          >
+            {showAll ? "Show recent months" : `Load full history (${DEFAULT_MONTHS}m default)`}
           </button>
         </div>
 

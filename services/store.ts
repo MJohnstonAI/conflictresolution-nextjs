@@ -96,6 +96,19 @@ const FALLBACK_STORIES: SuccessStory[] = [
   }
 ];
 
+type CaseQueryOptions = {
+  limit?: number;
+  offset?: number;
+  orderBy?: "created_at" | "last_activity_at";
+  ascending?: boolean;
+};
+
+type RoundQueryOptions = {
+  limit?: number;
+  offset?: number;
+  order?: "asc" | "desc";
+};
+
 // --- DB MAPPING UTILS ---
 
 const mapCaseFromDB = (row: any): Case => {
@@ -111,7 +124,7 @@ const mapCaseFromDB = (row: any): Case => {
     title: row.title,
     opponentType: row.opponent_type,
     createdAt: row.created_at,
-    lastUpdatedAt: row.created_at,
+    lastUpdatedAt: row.last_activity_at || row.created_at,
     planType: planType,
     roundsLimit,
     roundsUsed,
@@ -345,25 +358,62 @@ export const store = {
   
   // --- CASES ---
   
-  getCases: async (): Promise<Case[]> => {
+  getCases: async (options?: CaseQueryOptions): Promise<Case[]> => {
+    const orderBy =
+      options?.orderBy === "last_activity_at" ? "last_activity_at" : "created_at";
+    const ascending = options?.ascending ?? false;
+    const offset = options?.offset ?? 0;
+    const limit = options?.limit;
+    const sliceEnd = typeof limit === "number" ? offset + limit : undefined;
+    const sortCases = (list: Case[]) => {
+      const sorted = [...list].sort((a, b) => {
+        const aTime = new Date(
+          orderBy === "last_activity_at"
+            ? a.lastUpdatedAt || a.createdAt
+            : a.createdAt
+        ).getTime();
+        const bTime = new Date(
+          orderBy === "last_activity_at"
+            ? b.lastUpdatedAt || b.createdAt
+            : b.createdAt
+        ).getTime();
+        return ascending ? aTime - bTime : bTime - aTime;
+      });
+      return sorted.slice(offset, sliceEnd);
+    };
     try {
         const { data: { user } } = await supabase.auth.getUser();
         
         if (!user) {
             const cases = getLocal<Case>(LS_KEYS.CASES);
-            return cases.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            return sortCases(cases);
         }
 
-        const { data, error } = await supabase
-          .from('cases')
-          .select('*')
-          .order('created_at', { ascending: false });
+        const selectFields =
+          "id, title, opponent_type, plan_type, rounds_limit, rounds_used, is_closed, note, demo_scenario_id, created_at, last_activity_at";
+
+        const fetchWithOrder = async (column: "created_at" | "last_activity_at") => {
+          let query = supabase
+            .from('cases')
+            .select(selectFields)
+            .eq('user_id', user.id)
+            .order(column, { ascending });
+          if (typeof limit === "number") {
+            query = query.range(offset, offset + limit - 1);
+          }
+          return query;
+        };
+
+        let { data, error } = await fetchWithOrder(orderBy);
+        if (error && orderBy === "last_activity_at" && error.message?.includes("last_activity_at")) {
+          ({ data, error } = await fetchWithOrder("created_at"));
+        }
 
         if (error) throw error;
         return (data || []).map(mapCaseFromDB);
     } catch (error) {
         console.warn("Network unreachable, fetching local storage cases.");
-        return getLocal<Case>(LS_KEYS.CASES).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        return sortCases(getLocal<Case>(LS_KEYS.CASES));
     }
   },
 
@@ -380,6 +430,7 @@ export const store = {
           .from('cases')
           .select('*')
           .eq('id', id)
+          .eq('user_id', user.id)
           .single();
 
         if (error || !data) return undefined;
@@ -395,10 +446,14 @@ export const store = {
         const { data: { user } } = await supabase.auth.getUser();
         
         if (!user) {
+            const normalizedCase = {
+              ...newCase,
+              lastUpdatedAt: newCase.lastUpdatedAt || newCase.createdAt,
+            };
             const cases = getLocal<Case>(LS_KEYS.CASES);
-            const index = cases.findIndex(c => c.id === newCase.id);
-            if (index >= 0) cases[index] = newCase;
-            else cases.push(newCase);
+            const index = cases.findIndex(c => c.id === normalizedCase.id);
+            if (index >= 0) cases[index] = normalizedCase;
+            else cases.push(normalizedCase);
             setLocal(LS_KEYS.CASES, cases);
             return;
         }
@@ -419,10 +474,14 @@ export const store = {
         const { error } = await supabase.from('cases').upsert(payload);
         if (error) throw error;
     } catch (e) {
+        const normalizedCase = {
+          ...newCase,
+          lastUpdatedAt: newCase.lastUpdatedAt || newCase.createdAt,
+        };
         const cases = getLocal<Case>(LS_KEYS.CASES);
-        const index = cases.findIndex(c => c.id === newCase.id);
-        if (index >= 0) cases[index] = newCase;
-        else cases.push(newCase);
+        const index = cases.findIndex(c => c.id === normalizedCase.id);
+        if (index >= 0) cases[index] = normalizedCase;
+        else cases.push(normalizedCase);
         setLocal(LS_KEYS.CASES, cases);
     }
   },
@@ -449,26 +508,50 @@ export const store = {
 
   // --- ROUNDS ---
   
-  getRounds: async (caseId: string): Promise<Round[]> => {
+  getRounds: async (caseId: string, options?: RoundQueryOptions): Promise<Round[]> => {
     try {
         const { data: { user } } = await supabase.auth.getUser();
         
         if (!user) {
-            const rounds = getLocal<Round>(LS_KEYS.ROUNDS);
-            return rounds.filter(r => r.caseId === caseId).sort((a, b) => a.roundNumber - b.roundNumber);
+            const rounds = getLocal<Round>(LS_KEYS.ROUNDS).filter(r => r.caseId === caseId);
+            const order = options?.order === "desc" ? "desc" : "asc";
+            const sorted = rounds.sort((a, b) =>
+              order === "desc" ? b.roundNumber - a.roundNumber : a.roundNumber - b.roundNumber
+            );
+            if (typeof options?.limit === "number") {
+              const offset = options?.offset ?? 0;
+              return sorted.slice(offset, offset + options.limit);
+            }
+            return sorted;
         }
 
-        const { data, error } = await supabase
+        let query = supabase
           .from('rounds')
           .select('*')
           .eq('case_id', caseId)
-          .order('round_number', { ascending: true });
+          .eq('user_id', user.id);
+        const orderAsc = options?.order !== "desc";
+        query = query.order('round_number', { ascending: orderAsc });
+        if (typeof options?.limit === "number") {
+          const offset = options?.offset ?? 0;
+          query = query.range(offset, offset + options.limit - 1);
+        }
+        const { data, error } = await query;
 
         if (error) throw error;
         return (data || []).map(mapRoundFromDB);
     } catch (e) {
         const rounds = getLocal<Round>(LS_KEYS.ROUNDS);
-        return rounds.filter(r => r.caseId === caseId).sort((a, b) => a.roundNumber - b.roundNumber);
+        const filtered = rounds.filter(r => r.caseId === caseId);
+        const order = options?.order === "desc" ? "desc" : "asc";
+        const sorted = filtered.sort((a, b) =>
+          order === "desc" ? b.roundNumber - a.roundNumber : a.roundNumber - b.roundNumber
+        );
+        if (typeof options?.limit === "number") {
+          const offset = options?.offset ?? 0;
+          return sorted.slice(offset, offset + options.limit);
+        }
+        return sorted;
     }
   },
 
@@ -482,6 +565,15 @@ export const store = {
             if (index >= 0) rounds[index] = newRound;
             else rounds.push(newRound);
             setLocal(LS_KEYS.ROUNDS, rounds);
+            const cases = getLocal<Case>(LS_KEYS.CASES);
+            const caseIndex = cases.findIndex(c => c.id === newRound.caseId);
+            if (caseIndex >= 0) {
+              cases[caseIndex] = {
+                ...cases[caseIndex],
+                lastUpdatedAt: newRound.createdAt,
+              };
+              setLocal(LS_KEYS.CASES, cases);
+            }
             return;
         }
 
@@ -520,6 +612,15 @@ export const store = {
         if (index >= 0) rounds[index] = newRound;
         else rounds.push(newRound);
         setLocal(LS_KEYS.ROUNDS, rounds);
+        const cases = getLocal<Case>(LS_KEYS.CASES);
+        const caseIndex = cases.findIndex(c => c.id === newRound.caseId);
+        if (caseIndex >= 0) {
+          cases[caseIndex] = {
+            ...cases[caseIndex],
+            lastUpdatedAt: newRound.createdAt,
+          };
+          setLocal(LS_KEYS.CASES, cases);
+        }
     }
   },
 

@@ -10,6 +10,8 @@ import { Button, Badge } from '../components/UI';
 import { Skeleton, DropdownMenu, AlertDialog, toast } from '../components/DesignSystem';
 import { Archive, Search, Trash2, Printer, MoreVertical, FileText, AlertCircle, Eye } from 'lucide-react';
 
+const CASE_PAGE_SIZE = 24;
+
 const getRelativeTimeLabel = (dateISO: string) => {
     const timestamp = new Date(dateISO).getTime();
     if (!Number.isFinite(timestamp)) return "Unknown";
@@ -43,7 +45,9 @@ export const Vault: React.FC = () => {
         isAdmin: false,
         role: 'demo'
     });
-    const [caseActivityMap, setCaseActivityMap] = useState<Record<string, string>>({});
+    const [caseOffset, setCaseOffset] = useState(0);
+    const [hasMoreCases, setHasMoreCases] = useState(false);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [syncError, setSyncError] = useState(false);
   
@@ -52,24 +56,14 @@ export const Vault: React.FC = () => {
         setSyncError(false);
         try {
             const [fetchedCases, fetchedAccount] = await Promise.all([
-                store.getCases(),
+                store.getCases({ orderBy: "last_activity_at", limit: CASE_PAGE_SIZE, offset: 0 }),
                 store.getAccount()
             ]);
-            const activityEntries = await Promise.all(
-                fetchedCases.map(async (c) => {
-                    try {
-                        const rounds = await store.getRounds(c.id);
-                        const latestRound = rounds[rounds.length - 1];
-                        const activityAt = latestRound?.createdAt || c.lastUpdatedAt || c.createdAt;
-                        return [c.id, activityAt] as const;
-                    } catch {
-                        return [c.id, c.lastUpdatedAt || c.createdAt] as const;
-                    }
-                })
-            );
-            setCaseActivityMap(Object.fromEntries(activityEntries));
             setCases(fetchedCases);
             setAccount(fetchedAccount);
+            setCaseOffset(fetchedCases.length);
+            const totalCases = fetchedAccount.totalCasesCreated || fetchedCases.length;
+            setHasMoreCases(fetchedCases.length < totalCases);
             
             // If the role is still 'pending', something went wrong with the trigger
             if (fetchedAccount.role === 'pending') {
@@ -81,6 +75,29 @@ export const Vault: React.FC = () => {
             toast("Database synchronization delay. Some features may be restricted.", "error");
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadMoreCases = async () => {
+        if (isLoadingMore || !hasMoreCases) return;
+        setIsLoadingMore(true);
+        try {
+            const nextBatch = await store.getCases({
+                orderBy: "last_activity_at",
+                limit: CASE_PAGE_SIZE,
+                offset: caseOffset,
+            });
+            if (nextBatch.length === 0) {
+                setHasMoreCases(false);
+                return;
+            }
+            setCases((prev) => [...prev, ...nextBatch]);
+            const nextOffset = caseOffset + nextBatch.length;
+            setCaseOffset(nextOffset);
+            const totalCases = account.totalCasesCreated || nextOffset;
+            setHasMoreCases(nextOffset < totalCases);
+        } finally {
+            setIsLoadingMore(false);
         }
     };
 
@@ -128,12 +145,12 @@ export const Vault: React.FC = () => {
     const sortedCases = useMemo(() => {
         const sorted = [...filteredCases];
         sorted.sort((a, b) => {
-            const aTime = new Date(caseActivityMap[a.id] || a.lastUpdatedAt || a.createdAt).getTime();
-            const bTime = new Date(caseActivityMap[b.id] || b.lastUpdatedAt || b.createdAt).getTime();
+            const aTime = new Date(a.lastUpdatedAt || a.createdAt).getTime();
+            const bTime = new Date(b.lastUpdatedAt || b.createdAt).getTime();
             return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
         });
         return sorted;
-    }, [filteredCases, caseActivityMap]);
+    }, [filteredCases]);
   
     return (
       <div className="flex flex-col w-full h-full animate-fade-in pb-20 md:pb-0 px-6 md:px-10">
@@ -163,8 +180,13 @@ export const Vault: React.FC = () => {
             <div className="flex items-center gap-4">
                 <p className="text-slate-300 text-sm flex items-center gap-1">
                     <Archive className="w-4 h-4 text-gold-500" />
-                    Total Historical Cases: <span className="text-gold-500 font-bold">{cases.length}</span>
+                    Total Historical Cases: <span className="text-gold-500 font-bold">{account.totalCasesCreated || cases.length}</span>
                 </p>
+                {hasMoreCases && (
+                    <span className="text-[10px] uppercase tracking-widest text-slate-500">
+                        Showing {cases.length}
+                    </span>
+                )}
             </div>
           </div>
           <div className="relative w-full md:w-72">
@@ -225,11 +247,12 @@ export const Vault: React.FC = () => {
           <Button variant="ghost" onClick={() => router.push('/')} className="mt-4 text-gold-500">Create New Case</Button>
         </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
-            {sortedCases.map(c => {
+          <div className="space-y-6 pb-20">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {sortedCases.map(c => {
                 const caseNum = caseNumberMap.get(c.id) || 0;
                 const roundsLogged = Math.max(0, c.roundsUsed);
-                const activityAt = caseActivityMap[c.id] || c.lastUpdatedAt || c.createdAt;
+                const activityAt = c.lastUpdatedAt || c.createdAt;
                 const activityLabel = getRelativeTimeLabel(activityAt);
 
                 return (
@@ -289,7 +312,20 @@ export const Vault: React.FC = () => {
                       </div>
                    </div>
                 );
-            })}
+              })}
+            </div>
+            {!searchQuery && hasMoreCases && (
+                <div className="flex justify-center">
+                    <Button
+                        variant="ghost"
+                        onClick={loadMoreCases}
+                        disabled={isLoadingMore}
+                        className="text-gold-500"
+                    >
+                        {isLoadingMore ? "Loading more cases..." : "Load more cases"}
+                    </Button>
+                </div>
+            )}
           </div>
         )}
         

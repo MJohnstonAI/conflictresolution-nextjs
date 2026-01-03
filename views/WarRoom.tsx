@@ -15,6 +15,7 @@ import { setRouteState } from '../lib/route-state';
 import { authService } from '../services/auth';
 
 const MAX_EVIDENCE_CHARS = 20000;
+const ROUNDS_PAGE_SIZE = 20;
 const STANDARD_ANALYSIS_STAGES = [
     "Analyzing perspectives...",
     "Identifying common ground...",
@@ -669,6 +670,9 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
     const id = typeof params?.id === 'string' ? params.id : undefined;
     const [activeCase, setActiveCase] = useState<Case | null>(null);
     const [rounds, setRounds] = useState<Round[]>([]);
+    const [roundsOffset, setRoundsOffset] = useState(0);
+    const [hasMoreRounds, setHasMoreRounds] = useState(false);
+    const [isLoadingMoreRounds, setIsLoadingMoreRounds] = useState(false);
     const [loading, setLoading] = useState(true);
     const [allCases, setAllCases] = useState<Case[]>([]);
     const [account, setAccount] = useState<UserAccount | null>(null);
@@ -706,13 +710,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         const targetId = caseId || id;
         if (!targetId) return;
         const load = async () => {
-            const [c, r, cases, acc] = await Promise.all([
-                store.getCase(targetId),
-                store.getRounds(targetId),
-                store.getCases(),
-                store.getAccount()
-            ]);
-
+            const c = await store.getCase(targetId);
             if (!c) { router.push('/'); return; }
 
             let caseData = c;
@@ -723,7 +721,21 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                     await store.saveCase(caseData);
                 }
             }
-            if (caseData.opponentType === "Other" && r.length === 0) {
+
+            const shouldPaginateRounds = !caseData.demoScenarioId;
+            const roundOptions = shouldPaginateRounds
+                ? { limit: ROUNDS_PAGE_SIZE, offset: 0, order: "desc" as const }
+                : undefined;
+
+            const [r, cases, acc] = await Promise.all([
+                store.getRounds(targetId, roundOptions),
+                store.getCases(),
+                store.getAccount()
+            ]);
+
+            const loadedRounds = shouldPaginateRounds ? [...r].reverse() : r;
+
+            if (caseData.opponentType === "Other" && loadedRounds.length === 0) {
                 const suggestedOpponent = inferOpponentFromNote(caseData.note || "");
                 if (suggestedOpponent) {
                     caseData = {
@@ -737,16 +749,25 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
 
             setAllCases(cases);
             setActiveCase(caseData);
-            setRounds(r);
+            setRounds(loadedRounds);
+            setRoundsOffset(loadedRounds.length);
+            if (shouldPaginateRounds) {
+                const totalEstimate = Math.max(caseData.roundsUsed, loadedRounds.length);
+                setHasMoreRounds(
+                  totalEstimate > loadedRounds.length || loadedRounds.length === ROUNDS_PAGE_SIZE
+                );
+            } else {
+                setHasMoreRounds(false);
+            }
             setAccount(acc);
             setLoading(false);
             setSelectedOpponent(caseData.opponentType || "");
             
             // Set initial view to the first round if exists
-            if (r.length > 0) {
+            if (loadedRounds.length > 0) {
                 setViewIndex(0);
                 setInputMode(false);
-                if (r[0].senderIdentity) setSenderName(r[0].senderIdentity || "");
+                if (loadedRounds[0].senderIdentity) setSenderName(loadedRounds[0].senderIdentity || "");
             } else {
                 setViewIndex(0); // Input mode (Round 1)
                 setInputMode(true);
@@ -935,6 +956,7 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 `Round ${r.roundNumber}: Them: "${r.opponentText.substring(0, 200)}..."\nResponse (${r.selectedMode}): "${r.responses[r.selectedMode === 'Peacekeeper' ? 'soft' : r.selectedMode === 'Barrister' ? 'firm' : r.selectedMode === 'Grey Rock' ? 'greyRock' : 'nuclear']?.substring(0, 200)}..."`
             ).join('\n\n');
 
+            const generationId = crypto.randomUUID();
             const analysis = await analyzeConflict({
                 caseId: activeCase.id,
                 opponentType: activeCase.opponentType,
@@ -947,7 +969,8 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                 useDeepThinking: activeCase.planType === 'premium',
                 demoScenarioId: activeCase.demoScenarioId,
                 roundIndex: rounds.length,
-                senderIdentity: senderName
+                senderIdentity: senderName,
+                generationId
             });
 
             const newRound: Round = {
@@ -974,6 +997,10 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
             setActiveCase(updatedCase);
             setAccount(refreshedAccount);
             setInputText("");
+            if (!isDemo) {
+                setRoundsOffset(updatedRounds.length);
+                setHasMoreRounds(Math.max(updatedCase.roundsUsed, updatedRounds.length) > updatedRounds.length);
+            }
             
             // Auto-switch view to the result we just generated
             setViewIndex(updatedRounds.length - 1);
@@ -1050,6 +1077,40 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         setViewIndex(latestRoundIndex);
     };
 
+    const handleLoadOlderRounds = async () => {
+        if (!activeCase || isDemo || isLoadingMoreRounds || !hasMoreRounds) return;
+        setIsLoadingMoreRounds(true);
+        const currentRoundId = !inputMode ? rounds[viewIndex]?.id : null;
+        try {
+            const nextBatch = await store.getRounds(activeCase.id, {
+                limit: ROUNDS_PAGE_SIZE,
+                offset: roundsOffset,
+                order: "desc",
+            });
+            if (nextBatch.length === 0) {
+                setHasMoreRounds(false);
+                return;
+            }
+            const orderedBatch = [...nextBatch].reverse();
+            setRounds((prev) => {
+                const existing = new Set(prev.map((round) => round.id));
+                const newRounds = orderedBatch.filter((round) => !existing.has(round.id));
+                const merged = [...newRounds, ...prev];
+                if (currentRoundId) {
+                    const nextIndex = merged.findIndex((round) => round.id === currentRoundId);
+                    if (nextIndex >= 0) setViewIndex(nextIndex);
+                }
+                return merged;
+            });
+            const nextOffset = roundsOffset + nextBatch.length;
+            setRoundsOffset(nextOffset);
+            const totalEstimate = Math.max(activeCase.roundsUsed, nextOffset);
+            setHasMoreRounds(totalEstimate > nextOffset || nextBatch.length === ROUNDS_PAGE_SIZE);
+        } finally {
+            setIsLoadingMoreRounds(false);
+        }
+    };
+
     const handleDownload = () => {
         if (!activeCase) return;
         toast("Preparing case file...", "info");
@@ -1104,15 +1165,27 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                                 <span className="text-slate-100">Case {caseNum}</span>
                                                 <span className="text-slate-500">{viewLabel} • Round {displayRound}</span>
                                             </div>
-                                            {rounds.length > 0 && (!(!isInputMode && viewIndex === latestRoundIndex)) && (
-                                                <div className="flex items-center gap-2 text-[9px] uppercase tracking-widest text-slate-500 font-bold">
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleJumpToLatest}
-                                                        className="text-blue-400 hover:text-blue-300 transition-colors"
-                                                    >
-                                                        Jump to Latest
-                                                    </button>
+                                            {rounds.length > 0 && (
+                                                <div className="flex flex-wrap items-center gap-3 text-[9px] uppercase tracking-widest text-slate-500 font-bold">
+                                                    {hasMoreRounds && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleLoadOlderRounds}
+                                                            disabled={isLoadingMoreRounds}
+                                                            className="text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-60"
+                                                        >
+                                                            {isLoadingMoreRounds ? "Loading older rounds..." : "Load older rounds"}
+                                                        </button>
+                                                    )}
+                                                    {!(!isInputMode && viewIndex === latestRoundIndex) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleJumpToLatest}
+                                                            className="text-blue-400 hover:text-blue-300 transition-colors"
+                                                        >
+                                                            Jump to Latest
+                                                        </button>
+                                                    )}
                                                 </div>
                                             )}
                                             {showNavHint && (

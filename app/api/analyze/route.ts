@@ -5,7 +5,7 @@ import {
   resolveModelSlug,
   toOpenRouterErrorPayload,
 } from "@/lib/server/openrouter";
-import { getClientIp, rateLimit, retryAfterSeconds } from "@/lib/server/rate-limit";
+import { rateLimit, retryAfterSeconds } from "@/lib/server/rate-limit";
 import { requireAiAuth } from "@/lib/server/ai-auth";
 import { requireCaseAccess } from "@/lib/server/ai-case-guard";
 import { consumeSession, refundSession } from "@/lib/server/session-guard";
@@ -22,10 +22,15 @@ export async function POST(request: NextRequest) {
 
   const authGuard = await requireAiAuth(request);
   if (authGuard.ok === false) return authGuard.error;
+  if (!authGuard.userId) {
+    return NextResponse.json(
+      { error: { message: "Unauthorized", upstreamStatus: 401 } },
+      { status: 401 }
+    );
+  }
 
   if (process.env.ENABLE_AI_RATE_LIMITING === "true") {
-    const ip = getClientIp(request);
-    const limit = await rateLimit(`analyze:${ip}`, 8, 60_000);
+    const limit = await rateLimit(`analyze:${authGuard.userId}`, 8, 60_000);
     if (!limit.allowed) {
       const retryAfter = retryAfterSeconds(limit.resetAt);
       return NextResponse.json(
@@ -59,6 +64,7 @@ export async function POST(request: NextRequest) {
     planType,
     useDeepThinking,
     senderIdentity,
+    generationId,
   } = body || {};
 
   if (planType === "demo") {
@@ -159,11 +165,12 @@ Vibe check should be 2-3 short sentences.
       caseId: typeof caseId === "string" ? caseId : null,
       roundId: null,
       reason: "analysis",
+      generationId: typeof generationId === "string" ? generationId : null,
     });
     if (sessionGuard.ok === false) return sessionGuard.error;
     sessionConsumed = sessionGuard.consumed;
 
-    const modelSlug = await resolveModelSlug(planType, authGuard.token);
+    const modelSlug = await resolveModelSlug(planType, authGuard.token, authGuard.userId);
 
     const text = await callOpenRouterChat({
       model: modelSlug,
@@ -198,6 +205,7 @@ Vibe check should be 2-3 short sentences.
         caseId: typeof caseId === "string" ? caseId : null,
         roundId: null,
         reason: "analysis_failed_refund",
+        generationId: typeof generationId === "string" ? generationId : null,
       });
     }
     if (isOpenRouterError(error)) {

@@ -17,6 +17,7 @@ interface AnalysisParams {
   demoScenarioId?: string;
   roundIndex?: number;
   senderIdentity?: string;
+  generationId?: string;
 }
 
 const getAuthHeaders = async (): Promise<Record<string, string>> => {
