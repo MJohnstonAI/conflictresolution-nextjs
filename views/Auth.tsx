@@ -57,6 +57,11 @@ export const Auth: React.FC = () => {
 
     if (params.get('type') === 'recovery') {
       setView('update');
+    } else {
+      const viewParam = params.get('view');
+      if (viewParam === 'signup' || viewParam === 'signin') {
+        setView(viewParam);
+      }
     }
 
     return () => {

@@ -142,32 +142,34 @@ export const Badge: React.FC<{ children: React.ReactNode; color?: 'blue' | 'red'
 });
 Badge.displayName = "Badge";
 
-export const RiskGauge: React.FC<{ score: number }> = memo(({ score }) => {
-  // Use semantic variables for colors
+export const RiskGauge: React.FC<{ score: number; minLowFill?: number }> = memo(({ score, minLowFill = 0 }) => {
+  const normalizedScore = Number.isFinite(score) ? Math.min(100, Math.max(0, score)) : 0;
   let colorVar = 'var(--color-success)'; // Low (Green)
   let label = 'Low';
-  
-  if (score >= 40) { 
+
+  if (normalizedScore >= 40) {
       colorVar = 'var(--color-warning)'; // Medium (Amber)
-      label = 'Medium'; 
+      label = 'Medium';
   }
-  if (score >= 70) { 
+  if (normalizedScore >= 70) {
       colorVar = 'var(--color-danger)'; // High (Red)
-      label = 'High'; 
+      label = 'High';
   }
+  const displayScore = label === "Low" ? Math.max(minLowFill, normalizedScore) : normalizedScore;
+  const fillScore = Math.min(100, Math.max(0, displayScore));
 
   return (
     <div className="space-y-1 w-full">
       <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-slate-400">
         <span>Legal Risk</span>
         <span style={{ color: colorVar }}>
-          {score}/100 ({label})
+          {normalizedScore}/100 ({label})
         </span>
       </div>
       <div className="h-2 w-full bg-navy-950 rounded-full overflow-hidden border border-navy-800">
         <div 
           className="h-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(0,0,0,0.5)]" 
-          style={{ width: `${score}%`, backgroundColor: colorVar }}
+          style={{ width: `${fillScore}%`, backgroundColor: colorVar }}
         />
       </div>
     </div>

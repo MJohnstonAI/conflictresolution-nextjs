@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import { store } from '../services/store';
+import { demoStore } from '../services/demo_store';
 import { Case } from '../types';
 import { DEMO_SCENARIOS } from '../services/demo_scenarios';
 import { ArrowLeft, Heart, Briefcase, PlayCircle, Lock, Zap, CheckCircle2, Crown } from 'lucide-react';
@@ -12,7 +12,7 @@ import { Button, Badge } from '../components/UI';
 export const DemoSelect: React.FC = () => {
     const router = useRouter();
 
-    const startDemo = (scenarioId: string) => {
+    const startDemo = async (scenarioId: string) => {
         const scenario = DEMO_SCENARIOS[scenarioId];
         if (!scenario) return;
 
@@ -29,9 +29,9 @@ export const DemoSelect: React.FC = () => {
             demoScenarioId: scenarioId
         };
 
-        store.saveCase(newCase);
+        await demoStore.saveCase(newCase);
         // Pass initialText as the first round's text to trigger the "Play" feel immediately
-        router.push(`/case/${newCase.id}`);
+        router.push(`/demo/case/${newCase.id}`);
     };
 
     return (

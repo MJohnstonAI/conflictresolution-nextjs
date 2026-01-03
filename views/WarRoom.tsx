@@ -712,6 +712,10 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         const load = async () => {
             const c = await store.getCase(targetId);
             if (!c) { router.push('/'); return; }
+            if (c.planType === "demo" || c.demoScenarioId) {
+                router.push(`/demo/case/${c.id}`);
+                return;
+            }
 
             let caseData = c;
             if (caseData.demoScenarioId) {
