@@ -13,7 +13,16 @@ import { Archive, Search, Trash2, Pencil, Printer, MoreVertical, FileText, Alert
 const EditCaseModal: React.FC<any> = ({ c, onClose, onSave }) => {
   const [title, setTitle] = useState(c.title);
   const [note, setNote] = useState(c.note || "");
-  const handleSave = () => onSave({ ...c, title, note });
+  const [isSaving, setIsSaving] = useState(false);
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      await onSave({ ...c, title, note });
+    } finally {
+      setIsSaving(false);
+    }
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm animate-fade-in">
        <div className="bg-navy-900 border border-navy-800 rounded-2xl w-full max-w-sm p-6 space-y-4">
@@ -21,8 +30,8 @@ const EditCaseModal: React.FC<any> = ({ c, onClose, onSave }) => {
           <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-navy-950 border border-navy-800 rounded p-2 text-slate-100" />
           <textarea value={note} onChange={e => setNote(e.target.value)} className="w-full bg-navy-950 border border-navy-800 rounded p-2 text-slate-100" />
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleSave}>Save</Button>
+            <Button variant="ghost" onClick={onClose} disabled={isSaving}>Cancel</Button>
+            <Button onClick={handleSave} disabled={isSaving}>Save</Button>
           </div>
        </div>
     </div>
@@ -128,7 +137,11 @@ export const Vault: React.FC = () => {
                         <p className="text-xs text-slate-400">Your profile is taking longer than expected to initialize. Sessions may not show correctly.</p>
                     </div>
                 </div>
-                <button onClick={fetchData} className="px-3 py-1.5 bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-rose-600 transition-all">
+                <button
+                    onClick={fetchData}
+                    disabled={loading}
+                    className="px-3 py-1.5 bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-rose-600 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                >
                     Retry Sync
                 </button>
             </div>

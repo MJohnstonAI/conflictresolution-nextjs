@@ -89,7 +89,6 @@ You are NOT a lawyer.
 
 **TASK**
 Analyze the input and generate 4 strategic response drafts.
-Vibe check should be 2-3 short sentences.
 
 **RESPONSE FORMATTING STANDARDS:**
 1. **Structure:** Use clear, distinct paragraphs separated by "\\n\\n".
@@ -113,7 +112,7 @@ Vibe check should be 2-3 short sentences.
 
   const ANALYSIS_SCHEMA = `
 {
-  "vibeCheck": "string - 2-3 sentences emotional analysis.",
+  "vibeCheck": "string - 1 sentence emotional analysis.",
   "confidenceScore": 0,
   "confidenceExplanation": "string - short reason.",
   "legalRiskScore": 0,

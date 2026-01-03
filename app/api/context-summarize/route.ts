@@ -87,6 +87,7 @@ ${rawText}
         { role: "system", content: system.trim() },
         { role: "user", content: prompt.trim() },
       ],
+      planType: "premium",
       temperature: 0.2,
       max_tokens: 2000,
     });

@@ -344,12 +344,11 @@ const SingleRoundView: React.FC<{
     onModeSelect: (id: string, mode: Mode) => void;
     opponentType: string;
     onNextRound: () => void;
-    onPrint?: () => void;
     isLatest: boolean;
     userName?: string;
     isDemo?: boolean;
     demoHasNext?: boolean;
-}> = ({ round, onModeSelect, opponentType, onNextRound, onPrint, isLatest, userName, isDemo = false, demoHasNext = true }) => {
+}> = ({ round, onModeSelect, opponentType, onNextRound, isLatest, userName, isDemo = false, demoHasNext = true }) => {
 
     const [showRawText, setShowRawText] = useState(isDemo);
     const [showWhy, setShowWhy] = useState(false);
@@ -444,25 +443,15 @@ const SingleRoundView: React.FC<{
                             <Target className="w-4 h-4 text-blue-400" />
                             <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">Strategic Response</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <button 
-                                onClick={() => {
-                                    navigator.clipboard.writeText(currentResponse);
-                                    toast("Draft Copied to Clipboard", "success");
-                                }}
-                                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg border border-blue-500 transition-all"
-                            >
-                                <Copy className="w-4 h-4"/> Copy Text
-                            </button>
-                            {onPrint && (
-                                <button
-                                    onClick={onPrint}
-                                    className="flex items-center gap-2 px-4 py-2 bg-navy-800 hover:bg-navy-700 text-white text-sm font-bold rounded-lg border border-navy-700 transition-all"
-                                >
-                                    <Printer className="w-4 h-4" /> Print / PDF
-                                </button>
-                            )}
-                        </div>
+                        <button 
+                            onClick={() => {
+                                navigator.clipboard.writeText(currentResponse);
+                                toast("Draft Copied to Clipboard", "success");
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg border border-blue-500 transition-all"
+                        >
+                            <Copy className="w-4 h-4"/> Copy Text
+                        </button>
                     </div>
 
                     <div className="p-6 flex-1 flex flex-col min-h-0 gap-4">
@@ -495,7 +484,7 @@ const SingleRoundView: React.FC<{
                                 <button
                                     type="button"
                                     onClick={() => setShowWhy((v) => !v)}
-                                    className="flex items-center justify-between gap-2 rounded-xl border border-navy-800 bg-navy-950/40 px-4 py-3 text-left text-base font-semibold text-slate-200 hover:bg-navy-950/60 transition-colors"
+                                    className="flex items-center justify-between gap-2 rounded-xl border border-navy-800 bg-navy-950/40 px-4 py-3 text-left text-xs font-bold text-slate-200 hover:bg-navy-950/60 transition-colors"
                                 >
                                     <span className="flex items-center gap-2">
                                         <Info className="w-4 h-4 text-blue-400" />
@@ -510,7 +499,7 @@ const SingleRoundView: React.FC<{
                                 <button
                                     type="button"
                                     onClick={() => setShowWatchFor((v) => !v)}
-                                    className="flex items-center justify-between gap-2 rounded-xl border border-navy-800 bg-navy-950/40 px-4 py-3 text-left text-base font-semibold text-slate-200 hover:bg-navy-950/60 transition-colors"
+                                    className="flex items-center justify-between gap-2 rounded-xl border border-navy-800 bg-navy-950/40 px-4 py-3 text-left text-xs font-bold text-slate-200 hover:bg-navy-950/60 transition-colors"
                                 >
                                     <span className="flex items-center gap-2">
                                         <AlertTriangle className="w-4 h-4 text-amber-400" />
@@ -525,8 +514,8 @@ const SingleRoundView: React.FC<{
                             </div>
 
                             {showWhy && (
-                                <div className="rounded-xl border border-navy-800 bg-navy-950/30 px-4 py-3 text-base text-slate-300 leading-relaxed animate-fade-in space-y-2">
-                                    <div className="text-base font-semibold uppercase tracking-widest text-slate-500">
+                                <div className="rounded-xl border border-navy-800 bg-navy-950/30 px-4 py-3 text-xs text-slate-300 animate-fade-in space-y-2">
+                                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                                         In plain English
                                     </div>
                                     <div>
@@ -549,12 +538,12 @@ const SingleRoundView: React.FC<{
                             )}
 
                             {showWatchFor && (
-                                <div className="rounded-xl border border-navy-800 bg-navy-950/30 px-4 py-3 text-base text-slate-300 leading-relaxed animate-fade-in space-y-2">
+                                <div className="rounded-xl border border-navy-800 bg-navy-950/30 px-4 py-3 text-xs text-slate-300 animate-fade-in space-y-2">
                                     <div className="flex items-center justify-between gap-3">
-                                        <div className="text-base font-semibold uppercase tracking-widest text-slate-500">
+                                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                                             Risk quick check
                                         </div>
-                                        <div className="text-base font-semibold uppercase tracking-widest text-slate-500">
+                                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                                             Risk: <span className="text-slate-200">{riskSummary.label}</span>
                                         </div>
                                     </div>
@@ -957,64 +946,87 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
         <div className="w-full h-full">
             <div className="print-hidden flex flex-col h-full max-w-[1600px] mx-auto px-4 md:px-8 pb-6 w-full overflow-hidden">
                 {/* 1. TOP HEADER */}
-                <div className="py-4 flex flex-col gap-4 border-b border-navy-800 shrink-0">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div className="flex items-center gap-4 min-w-0">
-                            <button onClick={() => router.push('/vault')} className="text-slate-400 hover:text-white transition-colors">
-                                <ArrowLeft className="w-5 h-5" />
-                            </button>
-                            <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <h1 className="text-xl font-serif font-bold text-slate-100 max-w-[200px] md:max-w-md truncate">{activeCase.title}</h1>
-                                    {activeCase.planType === 'premium' && <Badge color="amber">Premium</Badge>}
-                                    <div className="flex items-center gap-2">
-                                        <button 
-                                            onClick={goToPrev} 
-                                            disabled={viewIndex === 0}
-                                            className="p-2 rounded-lg border border-navy-800 bg-navy-900 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                                        >
-                                            <ChevronLeft className="w-5 h-5" />
-                                        </button>
-                                        <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-widest font-mono">
-                                            <div className="flex items-center gap-1.5">
-                                                <div className="w-4 h-4 rounded bg-navy-950 border border-navy-800 flex items-center justify-center">
-                                                    <span className="text-[8px] font-bold text-gold-500">{caseNum}</span>
-                                                </div>
-                                                <span className="text-slate-100">Case {caseNum}</span>
-                                            </div>
-                                            <span className="text-slate-500">Round {displayRound}</span>
-                                        </div>
-                                        <button 
-                                            onClick={goToNext} 
-                                            disabled={viewIndex === rounds.length}
-                                            className="p-2 rounded-lg border border-navy-800 bg-navy-900 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                                        >
-                                            <ChevronRight className="w-5 h-5" />
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="text-[10px] text-slate-500 font-mono mt-1 truncate">
-                                    Model: <span className="text-slate-400">{activeModelSlug}</span>
-                                </div>
+                <div className="py-4 flex items-center justify-between border-b border-navy-800 shrink-0">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => router.push('/vault')} className="text-slate-400 hover:text-white transition-colors">
+                            <ArrowLeft className="w-5 h-5" />
+                        </button>
+                        <div>
+                            <div className="flex items-center gap-3">
+                                <h1 className="text-xl font-serif font-bold text-slate-100 max-w-[200px] md:max-w-md truncate">{activeCase.title}</h1>
+                                {activeCase.planType === 'premium' && <Badge color="amber">Premium</Badge>}
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-mono mt-1 truncate">
+                                Model: <span className="text-slate-400">{activeModelSlug}</span>
                             </div>
                         </div>
-                        <div className="flex items-center gap-4 justify-between md:justify-end">
-                            <div className="text-right">
-                                <div
-                                  className="text-[10px] font-bold uppercase tracking-widest text-slate-500"
-                                  title="1 Session generates strategy + mediation-style guidance + draft responses for one round."
-                                >
-                                  Sessions Remaining
-                                </div>
-                                <div className="text-sm font-bold text-slate-100">{activeSessions}</div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <div className="text-right">
+                            <div
+                              className="text-[10px] font-bold uppercase tracking-widest text-slate-500"
+                              title="1 Session generates strategy + mediation-style guidance + draft responses for one round."
+                            >
+                              Sessions Remaining
                             </div>
-                            <button onClick={() => router.push('/')} className="p-2 rounded-full hover:bg-navy-900 text-slate-400 hover:text-gold-400"><Home className="w-5 h-5"/></button>
+                            <div className="text-sm font-bold text-slate-100">{activeSessions}</div>
                         </div>
+                        <button onClick={() => router.push('/')} className="p-2 rounded-full hover:bg-navy-900 text-slate-400 hover:text-gold-400"><Home className="w-5 h-5"/></button>
                     </div>
                 </div>
 
-                {/* 2. MAIN CONTENT AREA (Responsive Height) */}
-                <div className="flex-1 min-h-0 relative pt-4">
+                {/* 2. NAVIGATION BAR & PROGRESS TRACKER (Combined for visual density) */}
+                <div className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0 border-b border-navy-800/50 mb-4">
+                    <div className="flex items-center gap-2">
+                         <button 
+                            onClick={goToPrev} 
+                            disabled={viewIndex === 0}
+                            className="p-2 rounded-lg border border-navy-800 bg-navy-900 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                         >
+                             <ChevronLeft className="w-5 h-5" />
+                         </button>
+                         
+                         <div className="flex flex-col min-w-[240px] px-2">
+                            <div className="flex justify-between items-end mb-1 gap-x-10">
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    <div className="w-4 h-4 rounded bg-navy-950 border border-navy-800 flex items-center justify-center">
+                                        <span className="text-[8px] font-bold text-gold-500">{caseNum}</span>
+                                    </div>
+                                    <span className="text-[10px] font-bold text-slate-100 uppercase tracking-widest font-mono">
+                                        CASE {caseNum}
+                                    </span>
+                                </div>
+                                <div className="text-right flex-1 min-w-0">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono whitespace-nowrap">
+                                        ROUND {displayRound}
+                                    </span>
+                                </div>
+                            </div>
+                         </div>
+
+                         <button 
+                            onClick={goToNext} 
+                            disabled={viewIndex === rounds.length}
+                            className="p-2 rounded-lg border border-navy-800 bg-navy-900 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                         >
+                             <ChevronRight className="w-5 h-5" />
+                         </button>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        {!isInputMode && (
+                            <button 
+                            onClick={handleDownload}
+                            className="flex items-center gap-2 px-4 py-2 bg-navy-800 hover:bg-navy-700 text-white text-sm font-bold rounded-lg border border-navy-700 transition-all"
+                            >
+                                <Printer className="w-4 h-4" /> Print / PDF
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* 3. MAIN CONTENT AREA (Responsive Height) */}
+                <div className="flex-1 min-h-0 relative">
                     {isInputMode ? (
                         <div className="h-full overflow-y-auto custom-scrollbar">
                             {rounds.length === 0 ? (
@@ -1119,7 +1131,6 @@ export const WarRoom: React.FC = ({ caseId, initialText }: any) => {
                                 onModeSelect={handleModeSelect}
                                 opponentType={activeCase.opponentType}
                                 onNextRound={goToNext}
-                                onPrint={handleDownload}
                                 isLatest={viewIndex === rounds.length - 1}
                                 userName={account?.name}
                                 isDemo={isDemo}

@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
     const text = await callOpenRouterChat({
       model: modelSlug,
       messages: [{ role: "user", content: prompt }],
+      planType,
       temperature: 0.7,
       max_tokens: 1000,
     });

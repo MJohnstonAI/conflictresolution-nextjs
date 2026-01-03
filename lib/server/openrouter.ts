@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { PlanType } from "@/types";
+import { aggressiveBudget, resolvePlanBudget } from "@/lib/ai/contextBudget";
+import { pruneMessages } from "@/lib/ai/pruneMessages";
 
 type PlanKey = "standard" | "premium";
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -117,6 +119,49 @@ const supabaseAdmin =
 const normalizePlan = (planType?: PlanType | string): PlanKey =>
   planType === "premium" ? "premium" : "standard";
 
+const extractSystemPrompt = (messages: ChatMessage[]) => {
+  const systemIndex = messages.findIndex((message) => message.role === "system");
+  if (systemIndex < 0) {
+    return { systemPrompt: "", remainingMessages: [...messages] };
+  }
+  const systemPrompt = messages[systemIndex]?.content || "";
+  const remainingMessages = messages.filter((_, idx) => idx !== systemIndex);
+  return { systemPrompt, remainingMessages };
+};
+
+const isContextLengthError = (status: number, payload: any, responseText: string) => {
+  if (status !== 400 && status !== 413) return false;
+  const message =
+    payload?.error?.message || payload?.message || responseText || "";
+  const normalized = String(message).toLowerCase();
+  return (
+    normalized.includes("context") &&
+    (normalized.includes("length") || normalized.includes("too long") || normalized.includes("tokens"))
+  );
+};
+
+const logPruneStats = (
+  label: string,
+  planType: PlanKey,
+  stats: {
+    estimatedTokensBefore: number;
+    estimatedTokensAfter: number;
+    messageCountBefore: number;
+    messageCountAfter: number;
+    summaryTruncated: boolean;
+  }
+) => {
+  console.info("[openrouter] prune", {
+    label,
+    planType,
+    tokensBefore: stats.estimatedTokensBefore,
+    tokensAfter: stats.estimatedTokensAfter,
+    messagesBefore: stats.messageCountBefore,
+    messagesAfter: stats.messageCountAfter,
+    summaryTruncated: stats.summaryTruncated,
+  });
+};
+
 const getUserIdFromToken = async (authToken?: string | null): Promise<string | null> => {
   if (!authToken || !supabaseAdmin) return null;
   const { data, error } = await supabaseAdmin.auth.getUser(authToken);
@@ -191,10 +236,32 @@ export const callOpenRouterChat = async (params: {
   messages: ChatMessage[];
   temperature?: number;
   max_tokens?: number;
+  planType?: PlanType | string;
+  rollingSummary?: string | null;
+  budgetTokens?: number;
+  keepLastTurns?: number;
 }): Promise<string> => {
   if (!openRouterKey) {
     throw new Error("Missing OPENROUTER_API_KEY");
   }
+
+  const planKey = normalizePlan(params.planType);
+  const baseBudget = resolvePlanBudget(planKey);
+  const budgetTokens = params.budgetTokens ?? baseBudget.inputTokens;
+  const keepLastTurns = params.keepLastTurns ?? baseBudget.keepLastTurns;
+  const { systemPrompt, remainingMessages } = extractSystemPrompt(params.messages);
+
+  const pruneResult = pruneMessages({
+    systemPrompt,
+    rollingSummary: params.rollingSummary,
+    messages: remainingMessages,
+    budgetTokens,
+    keepLastTurns,
+  });
+  logPruneStats("base", planKey, pruneResult);
+
+  let messagesToSend = pruneResult.prunedMessages;
+  let usedAggressivePrune = false;
 
   const headers = buildOpenRouterHeaders();
   const maxAttempts = Math.max(1, parsePositiveNumber(openRouterRetryMax, 3));
@@ -212,7 +279,7 @@ export const callOpenRouterChat = async (params: {
         headers,
         body: JSON.stringify({
           model: params.model,
-          messages: params.messages,
+          messages: messagesToSend,
           temperature: params.temperature,
           max_tokens: params.max_tokens,
         }),
@@ -236,6 +303,21 @@ export const callOpenRouterChat = async (params: {
     const { responseText, payload } = await readResponsePayload(response);
 
     if (!response.ok) {
+      if (!usedAggressivePrune && isContextLengthError(response.status, payload, responseText)) {
+        usedAggressivePrune = true;
+        const retryBudget = aggressiveBudget({ inputTokens: budgetTokens, keepLastTurns });
+        const aggressiveResult = pruneMessages({
+          systemPrompt,
+          rollingSummary: params.rollingSummary,
+          messages: remainingMessages,
+          budgetTokens: retryBudget.inputTokens,
+          keepLastTurns: retryBudget.keepLastTurns,
+        });
+        logPruneStats("aggressive", planKey, aggressiveResult);
+        messagesToSend = aggressiveResult.prunedMessages;
+        attempt -= 1;
+        continue;
+      }
       if (attempt < maxAttempts && shouldRetryStatus(response.status)) {
         const retryAfter = response.headers.get("retry-after");
         let delay = baseDelayMs * 2 ** (attempt - 1);
